@@ -16,7 +16,7 @@ SSO_LOCAL_REGISTER_ENABLED=true
 
 - `SSO_LOCAL_LOGIN_ENABLED` управляет входом по имени пользователя и паролю.
 - `SSO_LOCAL_REGISTER_ENABLED` управляет самостоятельной регистрацией.
-- Bootstrap admin остаётся резервной локальной учётной записью. Войти им можно только по паролю, поэтому восстановление доступа через него требует `SSO_LOCAL_LOGIN_ENABLED=true`: отдельного способа входа для bootstrap admin нет.
+- Начальный администратор остаётся резервной локальной учётной записью. Войти им можно только по паролю, поэтому восстановление доступа через него требует `SSO_LOCAL_LOGIN_ENABLED=true`: отдельного способа входа для него нет.
 - SSO не запускается, если выключены и `SSO_LOCAL_LOGIN_ENABLED`, и `SSO_OIDC_ENABLED`: войти было бы некому. Если выключен только локальный вход, а `SSO_OIDC_ADMIN_GROUPS` пуст, SSO при старте пишет предупреждение: администратор может не суметь войти.
 - Минимальная длина локального пароля на границе HTTP API — 6 символов; для администратора используйте более длинный случайный пароль.
 
@@ -33,11 +33,11 @@ SSO_LOCAL_REGISTER_ENABLED=true
 
 `/auth/refresh` и `/auth/logout` требуют `Origin` из `CORS_ALLOWED_ORIGINS` либо допустимый `Referer`, если `Origin` отсутствует. При `401` обновления cookie удаляется. При `503`, `504` или сетевой ошибке cookie сохраняется, действия приостанавливаются и предлагается повторить запрос либо войти заново. Ответы с токенами имеют `Cache-Control: no-store`.
 
-Выход из DCM в сессии, открытой через Keycloak, завершает и сессию Keycloak: Gateway отвечает на `POST /api/v1/auth/logout` полем `provider_logout_url`, и одностраничное приложение после успешного выхода переходит по этому адресу в Keycloak, который возвращает браузер на страницу входа DCM. Следующий человек за тем же компьютером не войдёт под чужой учётной записью одним щелчком. Это завершает сессию и в других приложениях той же области Keycloak. Выход из локальной сессии работает как прежде.
+Выход из DCM в сессии, открытой через Keycloak, завершает и сессию Keycloak: Gateway отвечает на `POST /api/v1/auth/logout` полем `provider_logout_url`, и одностраничное приложение после успешного выхода переходит по этому адресу в Keycloak, который возвращает браузер на страницу входа DCM. Следующий человек за тем же компьютером не войдёт под чужой учётной записью одним щелчком. Это завершает сессию и в других приложениях той же области Keycloak. Выход из локальной сессии затрагивает только DCM.
 
 Выход в Keycloak тоже доходит до DCM: Keycloak отправляет на `POST /api/v1/auth/oidc/keycloak/backchannel-logout` подписанный logout-токен (OpenID Connect Back-Channel Logout), и SSO сразу отзывает сессии DCM, открытые с этой сессией Keycloak, или, если токен называет только пользователя, все его сессии, открытые через Keycloak. Такой отзыв записывается в журнал аудита как `auth.provider_logout` с числом отозванных сессий. При отключении пользователя или снятии группы Keycloak back-channel logout не присылает надёжно; в этих случаях границей остаются 12 часов.
 
-После перехода на сессии требуется новый вход; старые refresh JWT и access JWT без идентификатора сессии не поддерживаются. Полный контракт описан в документе [о безопасности сессий](session-security.md).
+Полный контракт описан в документе [о безопасности сессий](session-security.md).
 
 Для развёртывания по HTTP используются:
 
@@ -47,7 +47,7 @@ COOKIE_HTTP_ONLY=true
 COOKIE_SAMESITE=lax
 ```
 
-При появлении HTTPS необходимо изменить origins/URLs и установить `COOKIE_SECURE=true`.
+Если перед DCM появится HTTPS, замените адреса в `CORS_ALLOWED_ORIGINS`, `GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS`, `FRONTEND_API_URL` и `SSO_OIDC_REDIRECT_URL` на `https://` и установите `COOKIE_SECURE=true`.
 
 ## OIDC через Keycloak
 
@@ -98,8 +98,7 @@ SSO_OIDC_ADMIN_GROUPS=/dcm-admins,dcm-admin
 7. Добавьте valid post logout redirect URIs `http://localhost/login` и `http://localhost:5173/login` (страница входа каждого адреса из `CORS_ALLOWED_ORIGINS`) и web origins `http://localhost`, `http://localhost:5173`. Сюда Keycloak возвращает браузер после выхода, начатого в DCM.
 8. В **Logout settings** включите **Backchannel logout session required** и задайте **Backchannel logout URL** `http://gateway:8081/api/v1/auth/oidc/keycloak/backchannel-logout`. В дополнительном Compose-файле Keycloak обращается к Gateway напрямую по общей сети `dcm_net` по имени сервиса `gateway` и его порту; в рабочем развёртывании указывается публичный адрес, например `https://dcm.example.com/api/v1/auth/oidc/keycloak/backchannel-logout`. Маршрут не требует cookie и `Origin`, но запрос Keycloak не должен проходить через фильтр, который их требует.
 9. Проверьте, что ID-токен содержит `sid` (по умолчанию его добавляет client scope `basic`), а при назначении роли через Keycloak — `groups` и/или `realm_access.roles` (см. «Кто управляет ролью»).
-10. Скопируйте client secret в `SSO_OIDC_CLIENT_SECRET` и перезапустите SSO/Gateway.
-
+10. Скопируйте client secret в `SSO_OIDC_CLIENT_SECRET` и перезапустите `sso` и `gateway`.
 
 ### Кто управляет ролью
 
@@ -140,11 +139,11 @@ Back-channel logout принимается, только если подпись
 
 ## Диагностика
 
-- Если provider не отображается, проверьте `SSO_OIDC_ENABLED` и `/api/v1/auth/providers`.
-- Если provider отображается с `"available": false`, SSO ещё не получил метаданные Keycloak: проверьте предупреждения `oidc provider discovery failed` в журнале SSO и доступность `SSO_OIDC_ISSUER_URL` из контейнера SSO.
-- Если callback отклонён, сравните issuer, redirect URI и browser origin без отличий в scheme/host/port. Код `reason` в адресе `/auth/callback` называет причину (см. выше).
+- Если кнопка Keycloak не отображается, проверьте `SSO_OIDC_ENABLED` и ответ `/api/v1/auth/providers`.
+- Если поставщик отображается с `"available": false`, SSO ещё не получил метаданные Keycloak: проверьте предупреждения `oidc provider discovery failed` в журнале SSO и доступность `SSO_OIDC_ISSUER_URL` из контейнера SSO.
+- Если обратный вызов отклонён, сравните издателя, redirect URI и источник страницы в браузере: схема, имя и порт должны совпадать точно. Код `reason` в адресе `/auth/callback` называет причину (см. выше).
 - Ошибки Keycloak SSO записывает в журнал с кодом OAuth (`provider_error`) и усечённым описанием (`provider_error_description`), без кода авторизации, состояния, токенов и секрета клиента. Ошибка уровня error `oidc provider refused the token request` (`invalid_client`, `unauthorized_client`, `invalid_request`) означает ошибку настройки DCM — например, неверный `SSO_OIDC_CLIENT_SECRET` или redirect URI; пользователь в этом случае, как и при недоступности Keycloak, видит «временно недоступно», а не «неверные учётные данные». Предупреждение `oidc id token rejected` называет причину: `signature`, `issuer`, `audience`, `expiry`, `nonce`, `subject` или `claims`.
-- Если admin role не назначается, проверьте token mappers и точное значение group/role.
+- Если роль администратора не назначается, проверьте преобразователи токена и точное значение группы или роли.
 - Если выход в Keycloak не завершает сессию DCM, проверьте Backchannel logout URL и доступность Gateway из контейнера Keycloak. Предупреждение SSO `oidc logout token rejected` называет причину: `signature`, `issuer`, `audience`, `expiry`, `events`, `nonce`, `subject` или `claims`.
 - Если после выхода из DCM Keycloak показывает ошибку о redirect URI, добавьте страницу входа этого адреса DCM в valid post logout redirect URIs клиента.
 - После изменения OIDC env перезапустите `sso` и `gateway`.

@@ -12,7 +12,7 @@
 http://dcm.example.com/api/v1
 ```
 
-Health endpoints находятся вне `/api/v1`:
+Проверки состояния находятся вне `/api/v1`:
 
 ```text
 GET /health/live
@@ -30,7 +30,7 @@ curl -sS -c cookies.txt \
   http://dcm.example.com/api/v1/auth/login
 ```
 
-Response содержит `access_token`, а refresh token устанавливается как HttpOnly cookie.
+Ответ содержит `access_token`, а токен обновления устанавливается как HttpOnly cookie.
 
 ### Защищённый запрос
 
@@ -130,7 +130,7 @@ curl -sS -b cookies.txt -c cookies.txt \
 
 Имена ограничений не меняются. Клиент должен допускать появление новых значений.
 
-## Pagination
+## Постраничный вывод
 
 Конечные точки со списками используют:
 
@@ -174,7 +174,7 @@ curl -sS \
 
 Значения переменных окружения передаются в `env_vars`, а подключения томов — в `volume_mounts`.
 
-Резерв контейнера задают необязательные `memory_reservation_mb` (в МБ, от `16` до `1048576`, то есть 1 ТиБ) и `cpu_reservation_millicores` (от `10` до `1000000000`, то есть наибольшей квоты CPU). Отсутствующее поле или `0` берёт резерв по умолчанию из настроек (`default_memory_reservation_bytes`, `default_cpu_reservation_millicores`). Значение вне границ — `400 bad_request`, сообщение его не повторяет; значение в границах, но больше остатка квоты — `403 quota_exceeded` с `limit` `user_memory` или `user_cpu`. После создания резерв не меняется. Ответы чтения контейнера содержат `memory_reservation_bytes` и `cpu_reservation_millicores`.
+Резерв контейнера задают необязательные `memory_reservation_mb` (в МБ, от `16` до `1048576`, то есть 1 ТиБ) и `cpu_reservation_millicores` (от `10` до `1000000000`, то есть наибольшей квоты CPU). Отсутствующее поле или `0` берёт резерв по умолчанию из настроек (`default_memory_reservation_bytes`, `default_cpu_reservation_millicores`). Значение вне границ — `400 bad_request`, сообщение его не повторяет; значение в границах, но больше остатка квоты — `409 quota_exceeded` с `limit` `user_memory` или `user_cpu`. После создания резерв не меняется. Ответы чтения контейнера содержат `memory_reservation_bytes` и `cpu_reservation_millicores`.
 
 ## Сборка из архива
 
@@ -195,7 +195,7 @@ curl -sS \
 
 Списки сборок возвращают `created_at` (постановка в очередь), `started_at` (успешный захват обработчиком) и `finished_at` в Unix-секундах. До выполнения `started_at = 0`; до завершения `finished_at = 0`. Длительность выполнения не включает ожидание в очереди. Сборка, для которой на диске сервера сейчас нет места ещё на один слот сборки (`build_max_disk_bytes` выше `host_min_free_disk_bytes`), не отклоняется: она остаётся `pending` и запускается, когда место освободится; `disk_floor` при создании сборки означает, что свободного места уже меньше минимума. Задачи `pending` не истекают по возрасту и сохраняют резервы до завершения или явной отмены; списки сортируются по `created_at` от новых к старым.
 
-## Build из Git
+## Сборка из Git
 
 ```bash
 curl -sS \
@@ -243,9 +243,9 @@ curl -sS \
 
 Оба запроса проверяют весь план развёртывания до постановки в очередь и отклоняют его с полем `limit` первого нарушенного ограничения: `queued_compose_deployments`, `containers_per_user`, `volumes_per_user`, `queued_builds`, затем `user_memory`, `user_cpu`, `user_disk`, `host_memory`, `host_cpu`, `disk_floor`. Ограничение очереди проверяется до приёма архива или клонирования. Порядок и правила описаны в [руководстве по Compose](compose-guide.md#проверка-при-приёме).
 
-## Logs через SSE
+## Журналы через SSE
 
-1. Получите ticket обычным Bearer request:
+1. Получите билет обычным запросом с токеном Bearer:
 
    ```bash
    curl -sS -X POST \
@@ -263,9 +263,9 @@ curl -sS \
 
 ## Терминал через WebSocket
 
-1. Получите ticket через `POST /containers/{id}/terminal/ticket`.
-2. Подключитесь к `/containers/{id}/terminal?ticket=...&cmd=...&rows=24&cols=80` по WebSocket.
-3. Источник страницы должен быть разрешён службой Gateway, контейнер должен иметь состояние `running`, а команда — входить в список, разрешённый на сервере.
+1. Получите билет через `POST /api/v1/containers/{id}/terminal/ticket`.
+2. Подключитесь по WebSocket к `/api/v1/containers/{id}/terminal?ticket=...&cmd=...&rows=24&cols=80`.
+3. Источник страницы (`Origin`) должен входить в `CORS_ALLOWED_ORIGINS`, контейнер должен иметь состояние `running`, а команда — входить в список, разрешённый на сервере.
 
 ## Административный API
 

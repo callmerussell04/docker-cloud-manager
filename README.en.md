@@ -37,7 +37,7 @@ Docker Cloud Manager (DCM) is an open-source, Heroku- and Railway-style platform
 ### For users
 
 - Run standalone containers from public Docker Hub images.
-- Build custom images from `.zip`, `.tar.gz`, or public HTTPS Git repositories.
+- Build custom images from `.zip`, `.tar`, `.tar.gz`, or public HTTPS Git repositories.
 - Deploy multi-container applications with Docker Compose from a YAML file, archive, or Git repository.
 - Manage persistent Docker volumes, including attaching DCM volumes as `external: true` in Compose.
 - Publish applications on custom subdomains through Traefik.
@@ -103,15 +103,14 @@ Long-running lifecycle operations execute asynchronously through durable databas
 
 ## Quick start
 
+This is the shortest path to a working stack on a personal machine with the `localhost` domain. For an externally reachable server, follow the full [single-VM deployment guide](docs/deployment-single-vm.md) (Russian): it covers DNS, Docker address pools, and certificates from your own CA.
+
 ### Requirements
 
-- A Linux server with a public IPv4 or IPv6 address.
-- Docker Engine and the Docker Compose plugin.
-- A user with access to the Docker daemon.
+- Linux with Docker Engine 29.5.1 or newer, the Docker Compose plugin, and Docker's iptables backend.
+- A user with access to the Docker daemon and `sudo` rights.
 - An available inbound TCP port `80`.
-- A panel domain (`DCM_HOST`) and a wildcard DNS record for applications (`*.BASE_DOMAIN`).
-
-The default domain settings use `localhost` for local evaluation. For an externally accessible deployment, point the main and wildcard domains to the server first.
+- `git` and `openssl`.
 
 ### 1. Clone the repository
 
@@ -120,109 +119,75 @@ git clone https://github.com/callmerussell04/docker-cloud-manager.git
 cd docker-cloud-manager
 ```
 
-### 2. Create the configuration
+### 2. Prepare the kernel
+
+The build network policy needs bridge traffic filtering:
+
+```bash
+sudo modprobe br_netfilter
+sudo sysctl -w net.bridge.bridge-nf-call-iptables=1 net.bridge.bridge-nf-call-ip6tables=1
+```
+
+The deployment guide shows how to keep these settings across reboots.
+
+### 3. Create the configuration
 
 ```bash
 cp backend/.env.example backend/.env
+chmod 600 backend/.env
 ```
 
-Open `backend/.env` and:
+Open `backend/.env` and replace every `change_me_*` value with its own random secret (`openssl rand -hex 32`). `GATEWAY_SERVICE_TOKEN`, `CORE_SERVICE_TOKEN`, and `BUILDER_SERVICE_TOKEN` must differ, and `OBJECT_STORAGE_SECRET_KEY` must equal `MINIO_ROOT_PASSWORD`. Set `SSO_ADMIN_EMAIL` and a strong `SSO_ADMIN_PASSWORD`.
 
-- replace every `change_me_*` value with a unique random secret;
-- set `SSO_ADMIN_EMAIL` and a secure `SSO_ADMIN_PASSWORD`;
-- for an external server, configure `DCM_HOST`, `BASE_DOMAIN`, `FRONTEND_API_URL`, `CORS_ALLOWED_ORIGINS`, and `GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS`;
-- keep `COOKIE_SECURE=false` only for the current HTTP deployment.
+### 4. Create the registry certificates
 
-### 3. Validate and start the stack
+The internal image registry only speaks TLS. Throwaway certificates are enough for a personal machine:
+
+```bash
+cd backend
+make dev-certs
+cd ..
+```
+
+The target (it needs `sudo`) creates the certificates in `/etc/dcm/registry` (the template's `REGISTRY_CERTS_DIR`), installs the CA for Docker, and adds the `registry` name to `/etc/hosts`. Do not use these certificates on a production server.
+
+### 5. Start the stack
 
 ```bash
 docker compose --env-file backend/.env config --quiet
 docker compose --env-file backend/.env up -d --build
 ```
 
-PostgreSQL and ClickHouse migrations run automatically as one-shot services before their dependent components start.
+The first build takes a few minutes. PostgreSQL and ClickHouse migrations run automatically before their dependent services start.
 
-### 4. Check the deployment
+### 6. Check the deployment
 
 ```bash
-docker compose --env-file backend/.env ps
+docker compose --env-file backend/.env ps --all
 curl -fsS http://localhost/health/live
 curl -fsS http://localhost/health/ready
 ```
 
-Open `http://<DCM_HOST>/` and sign in with `SSO_ADMIN_USERNAME` and `SSO_ADMIN_PASSWORD` from `backend/.env`.
-
-DNS and Docker address pools are covered in the [single-VM deployment guide](docs/deployment-single-vm.md). For common problems, see the [troubleshooting guide](docs/troubleshooting.md).
+Open `http://localhost/` and sign in with `SSO_ADMIN_USERNAME` and `SSO_ADMIN_PASSWORD` from `backend/.env`. If something does not start, see the [troubleshooting guide](docs/troubleshooting.md) (Russian).
 
 ## Development
 
-### Backend
-
-Run backend commands from `backend/`:
+Run backend commands from `backend/` and frontend commands from `frontend/`:
 
 ```bash
 cd backend
-
-make verify     # integration-free gates (see below)
-make build
-make test-fast
-make vet
-make test-race
-make vulncheck
-make lint
+make verify   # formatting, generated code, go mod tidy, build, vet, lint, fast tests under the race detector
+make test     # full suite with temporary PostgreSQL, ClickHouse, RabbitMQ and MinIO in Docker
 ```
-
-`make verify` runs `check-format` (gofmt over all backend Go files), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `lint` and `test-race` (the fast suite under the race detector), stopping at the first failing gate. `make test` (Docker-backed integration) and `make vulncheck` (live vulnerability database) run separately. golangci-lint v2.11.4 is installed under ignored `backend/bin/tools/`.
-
-The `Backend` GitHub Actions workflow (`.github/workflows/backend.yml`) runs `make verify`, `make test` and `make vulncheck` as separate jobs on backend pushes and pull requests; a weekly schedule reruns only `make vulncheck`. It has read-only repository permissions, pins actions by commit and protoc 34.1 by checksum, sets job timeouts and prints test service state and logs when integration tests fail before removing the services.
-
-Canonical Make targets select Go **1.26.11** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.11` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` (requires `jq`) scans production roots and all four built binaries and fails on any symbol-level finding not accepted in `backend/vulncheck/policy.json`, or on an accepted entry that is no longer reported. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
-
-Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
-
-```bash
-make generate-mocks  # mockery v2.53.6; ignored internal/testutil/mocks/
-make generate-proto  # protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2
-make generate        # both
-make check-generated # prepare mocks and compare protobuf output without overwriting it
-```
-
-Both `make test-fast` and `make test` prepare mocks and reject protobuf drift. After editing a `.proto`, run `make generate-proto` and commit the generated files. The test runner is pinned to gotestsum v1.13.0. Direct `go test` commands require `make generate-mocks` first.
-
-Run the complete integration test suite with temporary infrastructure:
-
-```bash
-cd backend
-make test
-```
-
-Docker Engine and the Compose plugin must be available. The runner provisions PostgreSQL, ClickHouse, RabbitMQ and MinIO on loopback ports defined in `backend/docker-compose.test.yml`, enables Docker smoke tests, and removes test containers, networks and volumes after success or failure, including startup failure. `TEST_KEEP_ENV=1` keeps them for diagnosis; use `make test-env-down` afterward. `make test` sets `DCM_TEST_REQUIRE_INTEGRATION=1`, so an integration test whose environment is missing fails instead of skipping; only the manual host-firewall check is exempt. Packages run in parallel under the race detector. The default startup wait is 120 seconds, package test timeout is five minutes, and shared Core fixture RPCs have a five-second deadline.
-
-`DCM_CLICKHOUSE_TEST_DB`, `DCM_CLICKHOUSE_TEST_USER` and `DCM_CLICKHOUSE_TEST_PASSWORD` configure both provisioning and the test client (defaults: `dcm_reports_test`, `dcm_reports_test`, `clickhouse`). `TEST_COMPOSE_PROJECT` isolates Compose resource names; host ports must still be free. Use `TEST_PKGS` to select packages or `TEST_ARGS` / `TEST_ALL_ARGS` to override Go test flags.
-
-### Frontend
 
 ```bash
 cd frontend
 npm ci
 VITE_API_URL=http://localhost/api/v1 VITE_BASE_DOMAIN=localhost npm run dev
+npm run lint && npm run build && npm test
 ```
 
-Lint and create a production build:
-
-```bash
-cd frontend
-npm run lint
-npm run build
-```
-
-### Full stack
-
-From the repository root:
-
-```bash
-docker compose --env-file backend/.env up -d --build
-```
+Tooling, code generation, tests, CI, pinned versions, and vulnerability scanning are described in the [developer guide](docs/development.md) (Russian). The frontend layout is described in [`frontend/README.md`](frontend/README.md).
 
 ## Repository structure
 
@@ -234,6 +199,7 @@ docker compose --env-file backend/.env up -d --build
 │   ├── internal/        # Bounded contexts and shared packages (platform)
 │   ├── migrations/      # PostgreSQL and ClickHouse migrations
 │   └── tests/integration/ # Multi-module tests; unit tests sit beside their code
+├── deployment/registry/ # Registry and build network isolation images and scripts
 ├── frontend/
 │   └── src/             # React SPA
 ├── docs/                # Project and deployment documentation
@@ -246,25 +212,28 @@ docker compose --env-file backend/.env up -d --build
 > [!WARNING]
 > `docker compose --env-file backend/.env down -v` deletes the persistent volumes that contain databases, object storage, the registry, and queues. Use `docker compose --env-file backend/.env down` for a normal shutdown.
 
-- The current Compose stack exposes external traffic over HTTP on port `80`. Configure HTTPS and secure cookies separately before production use.
+- The current Compose stack exposes external traffic over HTTP on port `80`. HTTPS is not supported out of the box; do not keep important data on a server reachable from an untrusted network.
 - Docker creates a separate bridge network for every user. Configure `default-address-pools` in the Docker daemon before operating the platform to prevent subnet exhaustion.
 - RabbitMQ, MinIO, Registry, and Traefik administration interfaces must not be exposed publicly; the current Compose configuration binds their ports to `127.0.0.1`.
-- Data remains in Docker volumes after a regular `docker compose down`.
+- Data remains in Docker volumes after a regular `docker compose down`. Upgrades and backups are covered in the [operations guide](docs/operations.md) (Russian), and the security model in a [separate document](docs/security-model.md) (Russian).
 - Access tokens, refresh cookies, internal service tokens, build arguments, and container environment values must not appear in logs.
 
 ## Documentation
 
 - [Documentation index (Russian)](docs/README.md)
 - [Single-VM deployment (Russian)](docs/deployment-single-vm.md)
+- [Upgrades and backups (Russian)](docs/operations.md)
 - [User guide (Russian)](docs/user-guide.md)
 - [Administrator guide (Russian)](docs/admin-guide.md)
+- [Configuration reference (Russian)](docs/configuration.md)
 - [Troubleshooting (Russian)](docs/troubleshooting.md)
 - [API guide (Russian)](docs/api-guide.md)
+- [Developer guide (Russian)](docs/development.md)
 - [HTTP API — OpenAPI 3.0](backend/api/gateway/openapi.yml)
 
 ## Project status
 
-Docker Cloud Manager is in development. Configuration and API backward compatibility are not guaranteed yet, and the current deployment targets a single server with HTTP traffic. Evaluate the risks, configure HTTPS, and arrange backups before using the project with important data.
+Docker Cloud Manager is in development. Configuration and API backward compatibility are not guaranteed yet, and the current deployment targets a single server with HTTP traffic. Evaluate the risks and arrange [backups](docs/operations.md) before using the project with important data.
 
 ## License
 

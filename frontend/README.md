@@ -1,33 +1,34 @@
-# Docker Cloud Manager frontend
+# Клиентская часть Docker Cloud Manager
 
-The web interface of Docker Cloud Manager (DCM), a self-hosted PaaS for one server. Users run containers, build images, manage volumes and deploy Compose projects; administrators manage users, quotas, runtime settings, monitoring, reports and every user's resources.
+Веб-интерфейс Docker Cloud Manager (DCM) — self-hosted PaaS для одного сервера. Пользователи запускают контейнеры, собирают образы, управляют томами и развёртывают проекты Compose; администраторы управляют пользователями, квотами, рабочими настройками, мониторингом, отчётами и ресурсами всех пользователей.
 
-Built with React, TypeScript and Vite; TanStack Query for server state, Zustand for client state, react-hook-form with Zod for forms, Tailwind CSS for styling, xterm.js for the browser terminal and Recharts for charts.
+Стек: React, TypeScript и Vite; TanStack Query для состояния сервера, Zustand для состояния клиента, react-hook-form с Zod для форм, Tailwind CSS для стилей, xterm.js для терминала в браузере и Recharts для графиков. Интерфейс переведён на русский и английский (`src/shared/i18n/locales/`).
 
-## Commands
+## Команды
 
-Run from this directory:
+Выполняются из этого каталога (нужен Node.js 24):
 
-| Command | Purpose |
+| Команда | Назначение |
 | --- | --- |
-| `npm run dev` | Development server |
-| `npm run build` | Type-check and production build |
-| `npm run lint` | ESLint, including the import-boundary rules |
-| `npm test` | Vitest |
+| `npm ci` | Установка зависимостей |
+| `npm run dev` | Сервер разработки |
+| `npm run build` | Проверка типов и production-сборка |
+| `npm run lint` | ESLint, включая правила границ импорта |
+| `npm test` | Vitest; один файл — `npx vitest run <путь>` |
 
-The build reads two variables at build time, both required: `VITE_API_URL` (the Gateway API base URL, for example `http://localhost/api/v1`) and `VITE_BASE_DOMAIN` (the domain user services are published under). Set them in `.env` for local development; the Docker image takes them as build arguments.
+Сборка читает две обязательные переменные: `VITE_API_URL` (базовый URL API Gateway, например `http://localhost/api/v1`) и `VITE_BASE_DOMAIN` (домен, под которым публикуются сервисы пользователей). Для локальной разработки задайте их в `.env`; Docker-образ получает их как аргументы сборки, а корневой Compose подставляет `FRONTEND_API_URL` и `BASE_DOMAIN`.
 
-## Structure
+## Структура
 
 ```
 src/
-  app/        composition root: entry point, providers, router, route guards, page layout
-  features/   one folder per domain: auth, dashboard, containers, images, volumes, projects, admin
-  shared/     code with no domain knowledge: api, ui, i18n, lib
+  app/        корень композиции: точка входа, провайдеры, маршрутизатор, защита маршрутов, макет страницы
+  features/   по папке на предметную область: auth, dashboard, containers, images, volumes, projects, admin
+  shared/     код без знания предметной области: api, ui, i18n, lib
 ```
 
-Imports go app → features → shared. Features import one another only in the directions listed in `eslint.config.js` (admin → auth and the resource features; projects → containers and images; containers → images and volumes), and nothing imports admin. `npm run lint` fails on any other import.
+Импорты идут в направлении app → features → shared. Функциональные модули импортируют друг друга только в направлениях, перечисленных в `eslint.config.js` (admin → auth и модули ресурсов; projects → containers и images; containers → images и volumes), и admin никто не импортирует. `npm run lint` падает на любом другом импорте.
 
-A feature keeps its API functions in `api.ts`, its queries, mutations and query keys in `queries.ts`, its form schemas in `schemas.ts`, its wire types and domain rules in `model.ts`, and its `components/` and `pages/` beside them. Resource features take a scope, `own` or `all`, which selects the user or the admin endpoints. Admin is split into `users`, `settings`, `monitoring`, `reports` and `resources`, each laid out the same way.
+Модуль хранит функции API в `api.ts`, запросы, мутации и ключи запросов — в `queries.ts`, схемы форм — в `schemas.ts`, типы данных и правила предметной области — в `model.ts`, а `components/` и `pages/` — рядом с ними. Модули ресурсов принимают область `own` или `all`, которая выбирает пользовательские или административные маршруты API. Admin разделён на `users`, `settings`, `monitoring`, `reports` и `resources`, устроенные одинаково.
 
-Tests sit beside the code they test as `*.test.ts`.
+Тесты лежат рядом с проверяемым кодом как `*.test.ts`.
