@@ -14,7 +14,6 @@ export const adminResources = {
   'admin.resources.tab.builds': 'Сборки',
   'admin.resources.tab.projects': 'Проекты',
   'admin.resources.statusFilter': 'Состояние',
-  'admin.resources.attentionCount': 'Требуют внимания: {count}',
   'admin.resources.statusEmptyDescription': 'Фильтр по состоянию скрывает остальные контейнеры.',
   'admin.resources.ownerFilter': 'Владелец',
   'admin.resources.everyone': 'Все пользователи',

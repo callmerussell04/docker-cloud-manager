@@ -16,7 +16,6 @@ export const adminResources: Record<keyof typeof ru, string> = {
   'admin.resources.tab.builds': 'Builds',
   'admin.resources.tab.projects': 'Projects',
   'admin.resources.statusFilter': 'Status',
-  'admin.resources.attentionCount': 'Need attention: {count}',
   'admin.resources.statusEmptyDescription': 'The status filter hides the other containers.',
   'admin.resources.ownerFilter': 'Owner',
   'admin.resources.everyone': 'Everyone',

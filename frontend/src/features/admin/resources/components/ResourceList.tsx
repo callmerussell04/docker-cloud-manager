@@ -14,7 +14,7 @@ import { useShellLayout } from '@/shared/ui/shellLayout';
 import { ToolbarButton, ToolbarSearch } from '@/shared/ui/Toolbar';
 import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { filterByOwner, ownerName, ownerOptions, sortOwned, type Owned } from '../model';
-import { FilterMenu, type FilterAlert, type FilterOption } from './FilterMenu';
+import { FilterMenu, type FilterOption } from './FilterMenu';
 import { OwnerFilter } from './OwnerFilter';
 
 // Every all-users list reads the server's largest page; the owner filter
@@ -45,12 +45,10 @@ export interface ResourceView {
 
 // StatusFilter is a status filter the server applies to a tab, shown as a
 // capsule beside the owner filter: its choices (the first shows
-// everything) with their counts, a count to call out while it shows
-// everything, and what to say when it leaves nothing.
+// everything) with their counts, and what to say when it leaves nothing.
 export interface StatusFilter<F extends string> {
   label: string;
   options: readonly FilterOption<F>[];
-  alert?: FilterAlert;
   emptyTitle: string;
   emptyDescription: string;
   showAll: string;
@@ -182,8 +180,6 @@ export function useResourceList<T extends Owned, K extends string, F extends str
       options={statusFilter.options}
       onChange={(filter) => changeView({ filter })}
       narrowed={view.filter !== everything}
-      // Called out only while everything shows; a chosen status says its own count.
-      alert={view.filter === everything ? statusFilter.alert : undefined}
       round={narrow}
     />
   );

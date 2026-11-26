@@ -10,14 +10,6 @@ export interface FilterOption<V extends string> {
   count?: number;
 }
 
-// FilterAlert is a count the capsule calls out while the filter shows
-// everything, such as the containers that need attention; label is its
-// accessible name.
-export interface FilterAlert {
-  count: number;
-  label: string;
-}
-
 interface FilterMenuProps<V extends string> {
   // label names the filter: the menu's name and the capsule's accessible
   // name.
@@ -32,7 +24,6 @@ interface FilterMenuProps<V extends string> {
   // narrowed marks a choice other than everything, in the accent, on the
   // round button.
   narrowed: boolean;
-  alert?: FilterAlert;
   // round shows the icon alone, as a round button for a narrow toolbar's
   // top row; the chosen value is then its accessible name and tooltip.
   round?: boolean;
@@ -41,28 +32,19 @@ interface FilterMenuProps<V extends string> {
 // FilterMenu is a toolbar glass capsule that narrows a list to one choice:
 // it names the choice (and its count) and opens a menu of choices, the
 // chosen one marked, each with its count.
-export function FilterMenu<V extends string>({ label, icon: Icon, value, chosen, count, options, onChange, narrowed, alert, round = false }: FilterMenuProps<V>) {
-  const alerting = alert && alert.count > 0 ? alert : undefined;
+export function FilterMenu<V extends string>({ label, icon: Icon, value, chosen, count, options, onChange, narrowed, round = false }: FilterMenuProps<V>) {
   const trigger = round ? (
-    <span className="relative flex">
-      <Icon aria-hidden className={cn('h-[17px] w-[17px]', narrowed ? 'text-accent' : 'text-label')} strokeWidth={narrowed ? 2.3 : 1.9} />
-      {alerting && <span aria-hidden className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-orange" />}
-    </span>
+    <Icon aria-hidden className={cn('h-[17px] w-[17px]', narrowed ? 'text-accent' : 'text-label')} strokeWidth={narrowed ? 2.3 : 1.9} />
   ) : (
     <>
       <Icon aria-hidden className="h-[15px] w-[15px] shrink-0 text-label-2" strokeWidth={1.9} />
       <span className="sr-only">{label}: </span>
       <span className="max-w-[140px] truncate">{chosen}</span>
       {count !== undefined && <span className="tabular-nums text-label-3">{count}</span>}
-      {alerting && (
-        <span aria-hidden className="rounded-full bg-orange px-1.5 text-[11px] font-semibold leading-[17px] tabular-nums text-white">
-          {alerting.count}
-        </span>
-      )}
       <ChevronDown aria-hidden className="h-[14px] w-[14px] shrink-0 text-label-2" strokeWidth={2.2} />
     </>
   );
-  const name = [round ? `${label}: ${chosen}${count !== undefined ? ` ${count}` : ''}` : label, alerting?.label].filter(Boolean).join(', ');
+  const name = round ? `${label}: ${chosen}${count !== undefined ? ` ${count}` : ''}` : label;
   return (
     <Glass className="shrink-0 rounded-full">
       <Menu

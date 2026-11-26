@@ -153,7 +153,6 @@ function useContainersTab(view: ResourceView, active: boolean) {
       statusFilter: {
         label: t('admin.resources.statusFilter'),
         options: containerFilters.map((filter) => ({ id: filter, label: t(`containers.filter.${filter}`), count: counts?.[filter] })),
-        alert: counts ? { count: counts.attention, label: t('admin.resources.attentionCount', { count: counts.attention }) } : undefined,
         emptyTitle: t('containers.filterEmpty'),
         emptyDescription: t('admin.resources.statusEmptyDescription'),
         showAll: t('containers.showAll'),
