@@ -1,0 +1,355 @@
+package service
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
+	"github.com/google/uuid"
+)
+
+// SessionRepository serializes mutations with user changes across SSO instances.
+type SessionRepository interface {
+	// WithUser commits fn's writes; operation names the commit in returned errors.
+	WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error
+	// WithLastAdminGuard is WithUser that first takes the lock serializing every
+	// write able to lower the number of active administrators; only its
+	// transaction may call CountActiveAdmins.
+	WithLastAdminGuard(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error
+	FindRefresh(ctx context.Context, digest []byte) (model.RefreshToken, error)
+	VerifySession(ctx context.Context, identity model.AccessIdentity, now time.Time) (model.User, error)
+	DeleteExpired(ctx context.Context, now time.Time, limit int) error
+	// ProviderSessionUsers lists the users with an unrevoked session signed in
+	// through provider with its session providerSessionID.
+	ProviderSessionUsers(ctx context.Context, provider, providerSessionID string) ([]uuid.UUID, error)
+}
+
+// SessionTransaction is valid only inside WithUser, after locking the user.
+// Callbacks return errors to roll back. Replay revocation must return nil to commit.
+type SessionTransaction interface {
+	CreateSession(ctx context.Context, session model.Session, token model.RefreshToken) error
+	GetRefresh(ctx context.Context, digest []byte) (model.Session, model.RefreshToken, error)
+	Rotate(ctx context.Context, session model.Session, previous, next model.RefreshToken) error
+	Revoke(ctx context.Context, sessionID uuid.UUID, now time.Time, reason string) error
+	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) error
+	// RevokeProviderSessions revokes, with reason provider_logout, the locked
+	// user's unrevoked sessions signed in through provider: those of provider
+	// session providerSessionID, or all of them when it is empty. It returns
+	// how many it revoked.
+	RevokeProviderSessions(ctx context.Context, provider, providerSessionID string, now time.Time) (int, error)
+	UpdateUser(ctx context.Context, user model.User) error
+	// CountActiveAdmins counts active administrators; valid only inside WithLastAdminGuard.
+	CountActiveAdmins(ctx context.Context) (int, error)
+}
+
+// OIDCSessionTTL is the absolute lifetime of a session created by an OIDC
+// callback, so a change made at the provider (a disabled user, a lost
+// administrator group) reaches DCM within it. Local sessions keep
+// Config.SessionTTL; the idle rule is the same for both.
+const OIDCSessionTTL = 12 * time.Hour
+
+// sessionOrigin is how a session was signed in: the zero value for a local
+// sign-in, the provider, its session ID (the ID token's sid) and the ID token
+// for an OIDC callback.
+type sessionOrigin struct {
+	provider          string
+	providerSessionID string
+	idToken           string
+}
+
+func (o sessionOrigin) local() bool { return o.provider == "" }
+
+// createSession signs authenticated in and names the user as the session's
+// transaction read it, which is the user the access token was issued for.
+func (s *AuthService) createSession(ctx context.Context, authenticated model.User, origin sessionOrigin) (model.SignIn, error) {
+	local := origin.local()
+	var result model.SignIn
+	err := s.sessions.WithUser(ctx, authenticated.ID, "create session", func(user model.User, tx SessionTransaction) error {
+		if user.Status != model.StatusActive || (local && (user.PasswordHash != authenticated.PasswordHash || user.AuthSource == model.AuthSourceOIDC)) {
+			return apperrors.ErrInvalidCredentials
+		}
+		now := s.now()
+		lifetime := s.cfg.SessionTTL
+		if !local {
+			lifetime = min(lifetime, OIDCSessionTTL)
+		}
+		session := model.Session{
+			ID: uuid.New(), UserID: user.ID, CreatedAt: now, AbsoluteExpiresAt: now.Add(lifetime),
+			Provider: origin.provider, ProviderSessionID: origin.providerSessionID, IDToken: origin.idToken,
+		}
+		session.IdleExpiresAt = earlier(now.Add(s.cfg.SessionIdleTTL), session.AbsoluteExpiresAt)
+		var token model.RefreshToken
+		var err error
+		result.Tokens, token, err = s.issueTokens(user, session, now)
+		if err != nil {
+			return err
+		}
+		result.User = model.SignedInUser{ID: user.ID, Username: user.Username, Role: user.Role}
+		if err := tx.CreateSession(ctx, session, token); err != nil {
+			return err
+		}
+		if local {
+			return nil
+		}
+		// An OIDC user's last sign-in is the session it succeeded with.
+		user.LastLoginAt = &now
+		return tx.UpdateUser(ctx, user)
+	})
+	if err != nil {
+		return model.SignIn{}, err
+	}
+	return result, nil
+}
+
+func (s *AuthService) issueTokens(user model.User, session model.Session, now time.Time) (model.Tokens, model.RefreshToken, error) {
+	var secret [32]byte
+	if _, err := io.ReadFull(s.random, secret[:]); err != nil {
+		return model.Tokens{}, model.RefreshToken{}, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate refresh token: %w", err))
+	}
+	value := base64.RawURLEncoding.EncodeToString(secret[:])
+	access, err := s.tokenProvider.GenerateAccessToken(user, session.ID, earlier(now.Add(s.cfg.AccessTTL), session.AbsoluteExpiresAt))
+	if err != nil {
+		return model.Tokens{}, model.RefreshToken{}, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate access token: %w", err))
+	}
+	digest := sha256.Sum256([]byte(value))
+	return model.Tokens{AccessToken: access, RefreshToken: value, RefreshExpiresAt: earlier(session.IdleExpiresAt, session.AbsoluteExpiresAt)},
+		model.RefreshToken{Digest: digest[:], SessionID: session.ID, UserID: user.ID, IssuedAt: now}, nil
+}
+
+func refreshDigest(value string) ([]byte, bool) {
+	if len(value) != 43 {
+		return nil, false
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
+	if err != nil || len(decoded) != 32 {
+		return nil, false
+	}
+	digest := sha256.Sum256([]byte(value))
+	return digest[:], true
+}
+
+func (s *AuthService) Refresh(ctx context.Context, value string) (model.Tokens, error) {
+	digest, valid := refreshDigest(value)
+	if !valid {
+		return model.Tokens{}, apperrors.ErrInvalidToken
+	}
+	found, err := s.sessions.FindRefresh(ctx, digest)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return model.Tokens{}, apperrors.ErrInvalidToken
+	}
+	if err != nil {
+		return model.Tokens{}, err
+	}
+	var result model.Tokens
+	var rejected bool
+	err = s.sessions.WithUser(ctx, found.UserID, "refresh session", func(user model.User, tx SessionTransaction) error {
+		session, token, err := tx.GetRefresh(ctx, digest)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			rejected = true
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		now := s.now()
+		if user.Status != model.StatusActive || session.UserID != user.ID || session.RevokedAt != nil || !now.Before(session.AbsoluteExpiresAt) || !now.Before(session.IdleExpiresAt) {
+			rejected = true
+			return nil
+		}
+		if token.ConsumedAt != nil {
+			rejected = true
+			return tx.Revoke(ctx, session.ID, now, "replay")
+		}
+		session.IdleExpiresAt = earlier(now.Add(s.cfg.SessionIdleTTL), session.AbsoluteExpiresAt)
+		var next model.RefreshToken
+		result, next, err = s.issueTokens(user, session, now)
+		if err != nil {
+			return err
+		}
+		return tx.Rotate(ctx, session, token, next)
+	})
+	if errors.Is(err, apperrors.ErrNotFound) || (err == nil && rejected) {
+		return model.Tokens{}, apperrors.ErrInvalidToken
+	}
+	if err != nil {
+		return model.Tokens{}, err
+	}
+	return result, nil
+}
+
+// Logout revokes the family identified by any of its retained secrets. For a
+// session created through OIDC whose ID token is still stored, it answers the
+// provider's sign-out URL returning the browser to postLogoutRedirectURI, so
+// signing out of DCM also ends the provider session; the URL is empty for a
+// local session, an already revoked one, or while the provider is unavailable
+// or advertises no end-session endpoint. The revocation clears the ID token,
+// so the URL is answered at most once.
+func (s *AuthService) Logout(ctx context.Context, value, postLogoutRedirectURI string) (string, error) {
+	digest, valid := refreshDigest(value)
+	if !valid {
+		return "", nil
+	}
+	found, err := s.sessions.FindRefresh(ctx, digest)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var revoked model.Session
+	err = s.sessions.WithUser(ctx, found.UserID, "logout session", func(_ model.User, tx SessionTransaction) error {
+		session, _, err := tx.GetRefresh(ctx, digest)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		revoked = session
+		return tx.Revoke(ctx, session.ID, s.now(), "logout")
+	})
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.providerSignOutURL(revoked, postLogoutRedirectURI), nil
+}
+
+// providerSignOutURL is the provider sign-out URL for a session that was live
+// with its ID token when it was revoked, and empty otherwise. No provider
+// call is made: the URL is built from discovery.
+func (s *AuthService) providerSignOutURL(session model.Session, postLogoutRedirectURI string) string {
+	if session.IDToken == "" || session.RevokedAt != nil || session.Provider != s.cfg.OIDCProviderName ||
+		!s.oidcEnabled() || !s.oidcProvider.Available() {
+		return ""
+	}
+	return s.oidcProvider.EndSessionURL(session.IDToken, postLogoutRedirectURI)
+}
+
+// errInvalidLogoutToken answers a back-channel logout whose token the
+// provider adapter refused; it echoes nothing of the token.
+var errInvalidLogoutToken = apperrors.New(apperrors.ErrBadRequest, "invalid logout token")
+
+// BackchannelLogout ends the DCM sessions a verified back-channel logout
+// token names: with a provider session (sid) the sessions signed in with it,
+// otherwise every session of the user bound to that provider subject signed
+// in through the provider. Each user's sessions are revoked under that user's
+// lock with reason provider_logout. It returns how many sessions it revoked;
+// a token naming nothing live revokes none and is still valid, because
+// revocation is idempotent. With OIDC off it is ErrNotFound, before the
+// provider is reached ErrUnavailable, and for a refused token a bad request.
+func (s *AuthService) BackchannelLogout(ctx context.Context, provider, logoutToken string) (int, error) {
+	if err := s.requireOIDCProvider(provider); err != nil {
+		return 0, err
+	}
+	if logoutToken == "" {
+		return 0, errInvalidLogoutToken
+	}
+	logout, err := s.oidcProvider.VerifyLogoutToken(ctx, logoutToken)
+	if errors.Is(err, apperrors.ErrInvalidToken) {
+		return 0, errInvalidLogoutToken
+	}
+	if err != nil {
+		return 0, err
+	}
+	var userIDs []uuid.UUID
+	if logout.SessionID != "" {
+		userIDs, err = s.sessions.ProviderSessionUsers(ctx, provider, logout.SessionID)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		user, err := s.repo.GetUserByExternalIdentity(ctx, provider, logout.Subject)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		userIDs = []uuid.UUID{user.ID}
+	}
+	revoked := 0
+	for _, userID := range userIDs {
+		var count int
+		err := s.sessions.WithUser(ctx, userID, "provider logout", func(_ model.User, tx SessionTransaction) error {
+			var err error
+			count, err = tx.RevokeProviderSessions(ctx, provider, logout.SessionID, s.now())
+			return err
+		})
+		if err != nil {
+			return revoked, err
+		}
+		revoked += count
+	}
+	return revoked, nil
+}
+
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// updateUser serializes credential/status mutations with session creation/refresh.
+// A write that may leave the user other than an active administrator runs under
+// the last-admin guard and is refused when it would remove the last one.
+func (s *AuthService) updateUser(ctx context.Context, user model.User, passwordChanged, statusChanged bool) error {
+	withUser := s.sessions.WithUser
+	if user.Role != model.RoleAdmin || (statusChanged && user.Status != model.StatusActive) {
+		withUser = s.sessions.WithLastAdminGuard
+	}
+	return withUser(ctx, user.ID, "update session user", func(current model.User, tx SessionTransaction) error {
+		if !passwordChanged {
+			user.PasswordHash = current.PasswordHash
+		}
+		if !statusChanged {
+			user.Status = current.Status
+		}
+		if isActiveAdmin(current) && !isActiveAdmin(user) {
+			count, err := tx.CountActiveAdmins(ctx)
+			if err != nil {
+				return err
+			}
+			if count <= 1 {
+				return errLastActiveAdmin
+			}
+		}
+		if err := tx.UpdateUser(ctx, user); err != nil {
+			return err
+		}
+		if passwordChanged || user.Status == model.StatusDeactivated {
+			return tx.RevokeAll(ctx, user.ID, s.now())
+		}
+		return nil
+	})
+}
+
+// sessionCleanupBatch bounds each cleanup pass over expired sessions.
+const sessionCleanupBatch = 100
+
+var errLastActiveAdmin = apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
+
+func isActiveAdmin(user model.User) bool {
+	return user.Role == model.RoleAdmin && user.Status == model.StatusActive
+}
+
+// CleanupSessions deletes expired sessions and expired login attempts, each in
+// a bounded pass; authorization and attempt consumption enforce expiry
+// independently.
+func (s *AuthService) CleanupSessions(ctx context.Context) error {
+	now := s.now()
+	err := s.sessions.DeleteExpired(ctx, now, sessionCleanupBatch)
+	if s.loginAttempts != nil {
+		err = errors.Join(err, s.loginAttempts.DeleteExpiredLoginAttempts(ctx, now, loginAttemptCleanupBatch))
+	}
+	return err
+}

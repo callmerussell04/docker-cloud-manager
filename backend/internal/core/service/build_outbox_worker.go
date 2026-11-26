@@ -4,26 +4,20 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
 
 type BuildOutboxRepository interface {
-	LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error)
+	LeasePendingBuildOutbox(ctx context.Context, limit, maxReleasedPerOwner int) ([]model.BuildQueueOutbox, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	MarkBuildOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error
 	MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error
-}
-
-type BuildQueuePublisher interface {
-	Publish(ctx context.Context, exchange, routingKey string, body []byte) error
-	Close() error
 }
 
 type BuildOutboxConfigProvider interface {
@@ -31,41 +25,32 @@ type BuildOutboxConfigProvider interface {
 }
 
 type BuildOutboxWorker struct {
-	repo      BuildOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       BuildOutboxConfigProvider
-	logger    *slog.Logger
+	repo   BuildOutboxRepository
+	cfg    BuildOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
-func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher BuildQueuePublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
+func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher OutboxPublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
+	logger = logging.WithComponent(logger, "build_outbox_worker")
 	return &BuildOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "build_outbox_worker"),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("build", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *BuildOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "build outbox worker started")
-
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().BuildOutboxIntervalSeconds) * time.Second
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "build outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().BuildOutboxIntervalSeconds }, w.publishBatch)
 }
 
+// publishBatch releases builds to Builder. Each owner's builds are released
+// at most max_concurrent_builds at a time (see LeasePendingBuildOutbox), and a
+// row whose build is no longer pending is discarded and never published.
 func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
-	items, err := w.repo.LeasePendingBuildOutbox(ctx, w.cfg.Get().BuildOutboxBatchSize)
+	cfg := w.cfg.Get()
+	items, err := w.repo.LeasePendingBuildOutbox(ctx, cfg.BuildOutboxBatchSize, cfg.MaxConcurrentBuilds)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to lease build outbox messages", "error", err)
 		return
@@ -73,26 +58,25 @@ func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 
 	for _, item := range items {
 		build, err := w.repo.GetByID(ctx, item.BuildID)
-		if err == nil && model.IsBuildTerminalStatus(build.Status) {
-			_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil)
+		if err == nil && build.Status != model.BuildStatusPending {
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil), "build_id", item.BuildID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err), "build_id", item.BuildID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch build for outbox message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkBuildOutboxPending(ctx, item.ID, err), "build_id", item.BuildID)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish build queue message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkBuildOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark build outbox message published", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   []any{"build_id", item.BuildID},
+		}, w.repo.MarkBuildOutboxPublished, w.repo.MarkBuildOutboxPending)
 	}
 }

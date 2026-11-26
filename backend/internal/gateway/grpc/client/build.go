@@ -1,11 +1,11 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) GetBuild(ctx context.Context, buildID string) (model.Build, error) {
@@ -62,12 +62,17 @@ func buildFromProto(item *coreapi.BuildData) model.Build {
 	return model.Build{
 		ID:                 item.GetId(),
 		ImageID:            item.GetImageId(),
+		Tag:                item.GetTag(),
 		ProjectID:          item.GetProjectId(),
 		ProjectServiceName: item.GetProjectServiceName(),
+		SourceKind:         item.GetSourceKind(),
+		SourceLocation:     item.GetSourceLocation(),
+		SourceRef:          item.GetSourceRef(),
 		Status:             item.GetStatus(),
+		CreatedAt:          item.GetCreatedAt(),
 		StartedAt:          item.GetStartedAt(),
 		FinishedAt:         item.GetFinishedAt(),
-		LogFilePath:        item.GetLogFilePath(),
+		LogObjectKey:       item.GetLogObjectKey(),
 		OwnerID:            item.GetOwnerId(),
 		OwnerUsername:      item.GetOwnerUsername(),
 	}

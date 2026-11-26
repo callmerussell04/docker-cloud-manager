@@ -21,6 +21,13 @@ const (
 	ContainerStatusReconciling = "reconciling"
 )
 
+// ContainerRef names a container another resource lists: one that uses an
+// image or mounts a volume.
+type ContainerRef struct {
+	ContainerID uuid.UUID
+	Name        string
+}
+
 type Container struct {
 	ID                    uuid.UUID
 	OwnerID               uuid.UUID
@@ -49,16 +56,29 @@ type Container struct {
 	CreatedAt             time.Time
 }
 
+// ReservesCapacity is the reservation rule: a container reserves its memory
+// and CPU when it is not missing and its status or desired status is running.
+// The repository's reservation queries apply the same rule in SQL.
+func (c Container) ReservesCapacity() bool {
+	if c.Status == ContainerStatusMissing {
+		return false
+	}
+	return c.Status == ContainerStatusRunning || c.DesiredStatus == ContainerStatusRunning
+}
+
 type ContainerCreateParams struct {
-	ProjectID         *uuid.UUID
-	Name              string
-	NetworkAlias      string
-	ImageTag          string
-	InternalPort      int
-	EnvVars           map[string]string
-	VolumeMounts      []VolumeMountParams
-	RequestedMemoryMB int64
-	DomainPrefix      string
+	ProjectID    *uuid.UUID
+	Name         string
+	NetworkAlias string
+	ImageTag     string
+	InternalPort int
+	EnvVars      map[string]string
+	VolumeMounts []VolumeMountParams
+	DomainPrefix string
+	// MemoryReservationMB and CPUReservationMillicores are the reservation
+	// the owner chose; zero takes the default of the runtime settings.
+	MemoryReservationMB      int64
+	CPUReservationMillicores int64
 
 	Command     []string
 	Entrypoint  []string
@@ -69,9 +89,12 @@ type ContainerCreateParams struct {
 type ContainerStats struct {
 	CPUPercentage    float64
 	MemoryUsageBytes int64
-	MemoryLimitBytes int64
-	NetworkRxBytes   int64
-	NetworkTxBytes   int64
+	// MemoryLimitBytes is the limit the container runs with now; above
+	// MemoryStandardLimitBytes the difference is borrowed.
+	MemoryLimitBytes         int64
+	MemoryStandardLimitBytes int64
+	NetworkRxBytes           int64
+	NetworkTxBytes           int64
 }
 
 type ContainerRuntimeTarget struct {

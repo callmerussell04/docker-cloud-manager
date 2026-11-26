@@ -1,0 +1,536 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Every colour the interface uses is a custom property here,
+ * redefined for dark mode, and exposed to Tailwind under the same name
+ * (tailwind.config.js), so components use names and never literals. The values
+ * are the token table of the redesign spec; src/app/tokens.test.ts holds them
+ * to it. See docs/agent-context/product-frontend.md, "Design system".
+ */
+@layer base {
+  :root {
+    --label: #1d1d1f;
+    --label-2: #5f5f66;
+    --label-3: #8e8e96;
+    --separator: rgba(0, 0, 0, 0.08);
+    --fill: rgba(90, 90, 100, 0.115);
+    --fill-hover: rgba(90, 90, 100, 0.2);
+    --accent: #2f5ea8;
+    --accent-fill: #3a6cc0;
+    /* A lighter accent fill: a part that follows the accent's part, as builds after containers on a capacity bar. */
+    --accent-soft: color-mix(in srgb, var(--accent-fill) 55%, transparent);
+    --on-accent: #ffffff;
+    --green: #28a745;
+    --orange: #f08c00;
+    --red: #ff3b30;
+    --red-text: #c9241b;
+    /* A failure's panel behind its red text: red at 10%. Tailwind cannot put
+       an opacity on a colour given as a custom property (bg-red/10 makes no
+       CSS), so the tint is its own token. */
+    --red-soft: color-mix(in srgb, var(--red) 10%, transparent);
+    --glass: rgba(255, 255, 255, 0.45);
+    --glass-dense: rgba(253, 253, 254, 0.81);
+    /* Menus, dialogs and the search palette: a lighter fill than the
+       controls' glass in light, over a backdrop toned up (contrast lowered,
+       brightness raised) so dark content behind, such as the console, comes
+       through light while its shapes still show. */
+    --glass-float: rgba(255, 255, 255, 0.62);
+    --glass-float-tone: contrast(0.35) brightness(1.7);
+    --frost: rgba(255, 255, 255, 0.59);
+    --frost-blur: 28px;
+    --frost-saturate: 125%;
+    --glass-sidebar: rgba(255, 255, 255, 0.4);
+    --console: #17191d;
+    /* The console is dark in both themes, so the text and controls on it
+       keep one set of values. */
+    --console-label: #e6e8ec;
+    --console-label-2: #a3a9b5;
+    --console-label-3: #6b7280;
+    --console-fill: rgba(255, 255, 255, 0.08);
+    --console-fill-hover: rgba(255, 255, 255, 0.14);
+    --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
+    --wallpaper-0: #f2f5fa;
+    --wallpaper-3: #e1e8f3;
+    --wallpaper-1: #bccce3;
+    --wallpaper-2: #819dc7;
+    --wallpaper-highlight: #ffffff;
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+
+    /* Material details: the specular rim (bright where light enters at the
+       top left, again where it leaves at the bottom right), the glass shadow,
+       the wallpaper's shadow, the scrim behind a dialog, and the solid surfaces that replace glass and
+       frost when the system asks for less transparency. */
+    --rim-enter: rgba(255, 255, 255, 1);
+    --rim-near: rgba(255, 255, 255, 0.55);
+    --rim-far: rgba(255, 255, 255, 0.22);
+    --rim-leave: rgba(255, 255, 255, 0.9);
+    --glass-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.1),
+      0 2px 6px rgba(0, 0, 0, 0.06),
+      0 18px 44px -12px rgba(0, 0, 0, 0.28),
+      inset 0 -10px 14px -12px rgba(0, 0, 0, 0.1);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.14);
+    --scrim: rgba(0, 0, 0, 0.18);
+    /* The lift: the raised fill of the selected item in a glass group, such
+       as the current page in the sidebar or the chosen pill. */
+    --lift: rgba(255, 255, 255, 0.92);
+    --tile: rgba(255, 255, 255, 0.62);
+    --lift-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 10px -3px rgba(0, 0, 0, 0.14);
+    /* The primary button's bevel and its glow in the accent. */
+    --primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.14), 0 6px 16px -6px var(--accent-fill);
+    --solid: #f6f7f9;
+    --solid-window: #fdfdfe;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Geist Mono Variable', ui-monospace, Menlo, monospace;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --label: #f5f5f7;
+    --label-2: #b0b0b8;
+    --label-3: #7c7c85;
+    --separator: rgba(200, 215, 255, 0.08);
+    --fill: rgba(140, 155, 185, 0.16);
+    --fill-hover: rgba(140, 155, 185, 0.26);
+    --accent: #9fb6e0;
+    --accent-fill: #4a6db0;
+    --accent-soft: color-mix(in srgb, var(--accent-fill) 55%, transparent);
+    --on-accent: #ffffff;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --red: #ff453a;
+    --red-text: #ff7a70;
+    --red-soft: color-mix(in srgb, var(--red) 10%, transparent);
+    --glass: rgba(40, 50, 70, 0.38);
+    --glass-dense: rgba(12, 16, 26, 0.86);
+    --glass-float: rgba(40, 50, 70, 0.38);
+    --glass-float-tone: brightness(1);
+    --frost: rgba(5, 8, 15, 0.6);
+    --frost-blur: 28px;
+    --frost-saturate: 115%;
+    --glass-sidebar: rgba(10, 14, 24, 0.45);
+    --console: #0d0e10;
+    /* The console is dark in both themes, so the text and controls on it
+       keep one set of values. */
+    --console-label: #e6e8ec;
+    --console-label-2: #a3a9b5;
+    --console-label-3: #6b7280;
+    --console-fill: rgba(255, 255, 255, 0.08);
+    --console-fill-hover: rgba(255, 255, 255, 0.14);
+    --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
+    --wallpaper-0: #020308;
+    --wallpaper-3: #060a14;
+    --wallpaper-1: #0d1526;
+    --wallpaper-2: #1a2a48;
+    --wallpaper-highlight: #4a6aa8;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+
+    --rim-enter: rgba(255, 255, 255, 0.5);
+    --rim-near: rgba(255, 255, 255, 0.14);
+    --rim-far: rgba(255, 255, 255, 0.05);
+    --rim-leave: rgba(255, 255, 255, 0.26);
+    --glass-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.8),
+      0 20px 50px -12px rgba(0, 0, 0, 0.7),
+      inset 0 -10px 14px -12px rgba(0, 0, 0, 0.4);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.6);
+    --scrim: rgba(0, 0, 0, 0.4);
+    --lift: rgba(200, 215, 255, 0.16);
+    --tile: rgba(200, 215, 255, 0.035);
+    --lift-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --solid: #121621;
+    --solid-window: #070a12;
+
+    color-scheme: dark;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--wallpaper-0);
+    color: var(--label);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.38;
+    letter-spacing: -0.004em;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--accent-fill);
+    color: var(--on-accent);
+  }
+
+  /* Every control shows where keyboard focus is. */
+  :focus-visible {
+    outline: 2px solid var(--accent-fill);
+    outline-offset: 2px;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/*
+ * Material. The window is one frosted surface over the wallpaper and content
+ * sits directly on it; only floating controls are glass. The Glass, FrostWindow
+ * and Wallpaper components in src/shared/ui apply these classes.
+ */
+@layer components {
+  .wallpaper {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .frost {
+    background: var(--frost);
+    -webkit-backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturate));
+    backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturate));
+  }
+
+  /* The wallpaper behind sign-in, blurred further to soft shapes. */
+  .frost-veil {
+    -webkit-backdrop-filter: blur(48px);
+    backdrop-filter: blur(48px);
+  }
+
+  /* Glass for floating controls. In Chromium, Glass adds an SVG displacement
+     map to the backdrop filter so the backdrop bends at the edge (lens.ts);
+     elsewhere this blur and saturation is all there is. */
+  .glass {
+    position: relative;
+    isolation: isolate;
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    backdrop-filter: blur(14px) saturate(180%);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* Menus, dialogs and the search palette: the float fill and tone with a
+     heavier blur, so the backdrop shows through as soft shapes while long
+     text stays readable. */
+  .glass-dense {
+    background: var(--glass-float);
+    -webkit-backdrop-filter: blur(12px) saturate(180%) var(--glass-float-tone);
+    backdrop-filter: blur(12px) saturate(180%) var(--glass-float-tone);
+  }
+
+  /* The sidebar: clearer glass over the wallpaper itself. */
+  .glass-sidebar {
+    background: var(--glass-sidebar);
+    -webkit-backdrop-filter: blur(10px) saturate(170%);
+    backdrop-filter: blur(10px) saturate(170%);
+  }
+
+  /* Specular rim: a one-pixel gradient border, bright where light enters at
+     the top left and where it leaves at the bottom right. */
+  .glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--rim-enter) 0%, var(--rim-near) 22%, var(--rim-far) 60%, var(--rim-leave) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+
+  /* A pinned glass bar that rows pass beneath: the rim stays clear and bends
+     the rows while a dense core, feathered out before the rim, keeps the bar's
+     label legible. Put a .glass-core element first inside a .glass bar. */
+  .glass-core {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--glass-dense);
+    pointer-events: none;
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+    mask-composite: intersect;
+  }
+}
+
+/*
+ * Shell. The sidebar's navigation items, and the scroll area that rows pass
+ * through beneath the floating toolbar. PageLayout, Sidebar and Page apply
+ * these classes.
+ */
+@layer components {
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    height: 32px;
+    padding: 0 9px;
+    border-radius: 10px;
+    color: var(--label);
+    font-weight: 450;
+    white-space: nowrap;
+  }
+
+  .nav-item svg {
+    flex: none;
+    color: var(--label-2);
+  }
+
+  .nav-item:hover {
+    background: var(--fill);
+  }
+
+  /* A tab of the phone tab bar: an icon only, its name for assistive
+     technology. .tab-current marks More when the current page is in its
+     sheet. */
+  .tab {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: 100%;
+    border-radius: 9999px;
+    color: var(--label-2);
+  }
+
+  /* The current page: a white lift with an accent icon in light. In dark a
+     grey lift sinks into the grey glass, so the item takes the accent as its
+     fill, with white icon and text on it. */
+  .nav-item[aria-current='page'],
+  .tab[aria-current='page'],
+  .tab-current {
+    background: var(--lift);
+    box-shadow: var(--lift-shadow);
+    font-weight: 600;
+  }
+
+  .nav-item[aria-current='page'] svg,
+  .tab[aria-current='page'] svg,
+  .tab-current svg {
+    color: var(--accent-fill);
+  }
+
+  .dark .nav-item[aria-current='page'],
+  .dark .tab[aria-current='page'],
+  .dark .tab-current {
+    background: color-mix(in srgb, var(--accent-fill) 62%, transparent);
+    box-shadow: var(--lift-shadow);
+    color: var(--on-accent);
+  }
+
+  .dark .nav-item[aria-current='page'] svg,
+  .dark .tab[aria-current='page'] svg,
+  .dark .tab-current svg {
+    color: var(--on-accent);
+  }
+
+  /* Rows fade out as they scroll up beneath the floating toolbar, and sooner
+     behind its title, which has no glass of its own. */
+  .toolbar-fade {
+    /* --toolbar-bottom comes from .page, which knows how many rows the
+       toolbar has; setting it here would hide that. */
+    -webkit-mask-image:
+      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) calc(var(--toolbar-bottom) - 24px), #000 calc(var(--toolbar-bottom) + 12px)),
+      radial-gradient(ellipse 250px 56px at 120px 30px, transparent 55%, #000 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) calc(var(--toolbar-bottom) - 24px), #000 calc(var(--toolbar-bottom) + 12px)),
+      radial-gradient(ellipse 250px 56px at 120px 30px, transparent 55%, #000 100%);
+    mask-composite: intersect;
+    scrollbar-width: thin;
+    scrollbar-color: var(--fill-hover) transparent;
+  }
+
+  /* The page's scroll area starts below the floating toolbar: one row of
+     40 px at 14 px from the top, or two rows when its pills stack. */
+  .page {
+    --toolbar-bottom: 54px;
+  }
+
+  .page:has(> header[data-rows='2']) {
+    --toolbar-bottom: 106px;
+  }
+
+  .page-scroll {
+    padding-top: calc(var(--toolbar-bottom) + var(--head-height, 0px) + 22px);
+    scrollbar-gutter: stable;
+  }
+
+  /* A list's column labels stay fixed under the toolbar, outside the scroll
+     area, and rows scrolling up vanish entirely before they reach them. The
+     slot keeps the same scrollbar gutter as the scroll area, so each label
+     stays over its column. Compact rows have no labels; the slot is empty. */
+  .list-head-slot {
+    top: calc(var(--toolbar-bottom) + 12px);
+    overflow: hidden;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
+  .page:has(> .list-head-slot:not(:empty)) {
+    --head-height: 40px;
+  }
+
+  .page:has(> .list-head-slot:not(:empty)) > .toolbar-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--toolbar-bottom) + 42px), #000 calc(var(--toolbar-bottom) + 56px));
+    mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--toolbar-bottom) + 42px), #000 calc(var(--toolbar-bottom) + 56px));
+  }
+
+  /* Rows are parted by a hairline that starts after the status dot and
+     disappears around a hovered row that opens, whose fill takes its place. */
+  .list-row + .list-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 12px;
+    left: 38px;
+    height: 1px;
+    background: var(--separator);
+  }
+
+  .list-row[tabindex]:hover::before,
+  .list-row[tabindex]:hover + .list-row::before {
+    opacity: 0;
+  }
+
+  /* A loading list's placeholder bars: a light sweeping across each one.
+     Reduced motion stops it with every other animation. */
+  .ghost-shimmer {
+    background-image: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--label) 9%, transparent) 50%, transparent 100%);
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+    animation: ghost-shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes ghost-shimmer {
+    from {
+      background-position: 160% 0;
+    }
+    to {
+      background-position: -60% 0;
+    }
+  }
+
+  /* The memory map's blocks take their project's colour from --tint; the
+     free part is hatched. */
+  .memory-block {
+    background-color: color-mix(in srgb, var(--tint) 82%, transparent);
+    transition: filter 0.15s;
+  }
+
+  .memory-block:hover {
+    filter: brightness(1.08);
+  }
+
+  .memory-free {
+    background-image: repeating-linear-gradient(135deg, transparent 0 8px, var(--fill-hover) 8px 9px);
+    box-shadow: inset 0 0 0 1.5px var(--separator);
+  }
+
+  @keyframes status-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  /* A menu on a phone rises from the bottom as a sheet over a dimmed page. */
+  .sheet-pop {
+    animation: sheet-pop 0.22s ease-out;
+  }
+
+  .sheet-scrim {
+    animation: sheet-scrim 0.22s ease-out;
+  }
+
+  @keyframes sheet-pop {
+    from {
+      opacity: 0;
+      translate: 0 40px;
+    }
+  }
+
+  @keyframes sheet-scrim {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .menu-pop {
+    animation: menu-pop 0.14s ease-out;
+  }
+
+  @keyframes menu-pop {
+    from {
+      opacity: 0;
+      scale: 0.97;
+    }
+  }
+}
+
+/* The system's reduce-transparency setting turns every glass and frost
+   surface solid. !important also beats the backdrop filter Glass sets inline. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-dense,
+  .glass-sidebar {
+    background: var(--solid) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .glass-core {
+    display: none;
+  }
+
+  .frost {
+    background: var(--solid-window) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .frost-veil {
+    background: var(--wallpaper-0);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* The system's reduce-motion setting turns animations off. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -8,9 +8,13 @@ type VolumeDTO struct {
 	LastError       string `json:"last_error"`
 	UsedBytes       int64  `json:"used_bytes"`
 	UsageObservedAt int64  `json:"usage_observed_at"`
+	SizeBytes       int64  `json:"size_bytes"`
+	SizeEnforced    bool   `json:"size_enforced"`
 	CreatedAt       int64  `json:"created_at"`
 	OwnerID         string `json:"owner_id"`
 	OwnerUsername   string `json:"owner_username"`
+	// UsedBy names the containers that mount the volume; never null.
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type UserVolumeDTO struct {
@@ -20,11 +24,17 @@ type UserVolumeDTO struct {
 	LastError       string `json:"last_error"`
 	UsedBytes       int64  `json:"used_bytes"`
 	UsageObservedAt int64  `json:"usage_observed_at"`
+	SizeBytes       int64  `json:"size_bytes"`
+	SizeEnforced    bool   `json:"size_enforced"`
 	CreatedAt       int64  `json:"created_at"`
+	// UsedBy names the containers that mount the volume; never null.
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type CreateVolumeDTO struct {
 	Name string `json:"name" binding:"required"`
+	// SizeBytes is optional; omitted or zero asks for the default size.
+	SizeBytes int64 `json:"size_bytes"`
 }
 
 type VolumeMountDTO struct {

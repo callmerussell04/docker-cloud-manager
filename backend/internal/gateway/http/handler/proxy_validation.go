@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 )
 
 func validateTelemetryLogQuery(c *gin.Context) bool {

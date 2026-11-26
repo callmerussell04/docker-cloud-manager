@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
 
@@ -26,39 +25,26 @@ type ResourceOutboxConfigProvider interface {
 }
 
 type ResourceOutboxWorker struct {
-	repo      ResourceOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       ResourceOutboxConfigProvider
-	logger    *slog.Logger
+	repo   ResourceOutboxRepository
+	cfg    ResourceOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
-func NewResourceOutboxWorker(repo ResourceOutboxRepository, publisher BuildQueuePublisher, cfg ResourceOutboxConfigProvider, logger *slog.Logger) *ResourceOutboxWorker {
+func NewResourceOutboxWorker(repo ResourceOutboxRepository, publisher OutboxPublisher, cfg ResourceOutboxConfigProvider, logger *slog.Logger) *ResourceOutboxWorker {
+	logger = logging.WithComponent(logger, "resource_outbox_worker")
 	return &ResourceOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "resource_outbox_worker"),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("resource", publisher, logger),
+		logger: logger,
 	}
 }
 
+// Run relays volume and image operations on the lifecycle outbox schedule it
+// shares with the container outbox worker.
 func (w *ResourceOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "resource outbox worker started")
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().ContainerCreateOutboxIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "resource outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ResourceOutboxWorker) publishBatch(ctx context.Context) {
@@ -68,27 +54,27 @@ func (w *ResourceOutboxWorker) publishBatch(ctx context.Context) {
 		return
 	}
 	for _, item := range items {
+		attrs := []any{"resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID}
 		op, err := w.repo.GetOperationByID(ctx, item.OperationID)
 		if err == nil && op.Status != model.OperationStatusPending {
-			_ = w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil), attrs...)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err), attrs...)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch resource operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkResourceOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkResourceOutboxPending(ctx, item.ID, err), attrs...)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish resource queue message", "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkResourceOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkResourceOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark resource outbox message published", "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   attrs,
+		}, w.repo.MarkResourceOutboxPublished, w.repo.MarkResourceOutboxPending)
 	}
 }

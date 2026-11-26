@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,6 +56,7 @@ func (m *Manager) Update(newConfig SystemConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	newConfig.Fixed = m.config.Fixed
 	if err := ValidateSystemConfig(newConfig); err != nil {
 		return err
 	}
@@ -77,17 +79,13 @@ func (m *Manager) saveToFile(cfg SystemConfig) error {
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, tmp.Close(), os.Remove(tmpName))
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, os.Remove(tmpName))
 	}
 	if err := os.Chmod(tmpName, 0644); err != nil {
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, os.Remove(tmpName))
 	}
 	return os.Rename(tmpName, m.configPath)
 }
@@ -105,6 +103,7 @@ func (m *Manager) loadFromFile(defaultConfig SystemConfig) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
+	cfg.Fixed = defaultConfig.Fixed
 	m.config = cfg
 	return nil
 }

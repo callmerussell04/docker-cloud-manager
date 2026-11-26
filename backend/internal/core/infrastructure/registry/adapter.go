@@ -5,28 +5,27 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 )
+
+const manifestAttemptTimeout = time.Minute
 
 type Adapter struct {
 	baseURL    string
 	httpClient *http.Client
-}
-
-func NewAdapter(registryURL string) *Adapter {
-	baseURL := registryURL
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "http://" + baseURL
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	return &Adapter{
-		baseURL:    baseURL,
-		httpClient: &http.Client{},
-	}
+	tokens     TokenProvider
 }
 
 func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, manifestAttemptTimeout)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repo, tag)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -42,24 +41,35 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	}
 	req.Header.Set("Accept", strings.Join(acceptHeaders, ", "))
 
+	if err := a.authorize(ctx, req, repo, model.RegistryTrustedPull); err != nil {
+		return 0, "", requestError("registry manifest authorization failed", err)
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return 0, "", err
+		return 0, "", requestError("registry manifest lookup failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("registry returned status: %d", resp.StatusCode)
+		return 0, "", apperrors.Wrap(
+			responseError(resp.StatusCode), "registry manifest lookup failed",
+			fmt.Errorf("registry returned HTTP %d", resp.StatusCode),
+		)
 	}
 
 	digest := resp.Header.Get("Docker-Content-Digest")
 	if digest == "" {
-		return 0, "", errors.New("missing Docker-Content-Digest header")
+		return 0, "", apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
 	}
 
 	var manifest manifestResponse
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return 0, "", err
+		// A body cut short by the caller's deadline or cancellation can
+		// surface as a bare unexpected EOF; the caller's context is the cause.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, "", requestError("registry manifest lookup failed", errors.Join(ctxErr, err))
+		}
+		return 0, "", requestError("registry manifest response is invalid", err)
 	}
 
 	totalSize := manifest.Config.Size
@@ -71,20 +81,40 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 }
 
 func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error {
+	ctx, cancel := context.WithTimeout(ctx, manifestAttemptTimeout)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repo, digest)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
 	}
 
+	if err := a.authorize(ctx, req, repo, model.RegistryTrustedCleanup); err != nil {
+		return requestError("registry manifest authorization failed", err)
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return err
+		return requestError("registry manifest deletion failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("failed to delete manifest, status: %d", resp.StatusCode)
+		return apperrors.Wrap(
+			responseError(resp.StatusCode), "registry manifest deletion failed",
+			fmt.Errorf("registry returned HTTP %d", resp.StatusCode),
+		)
 	}
 	return nil
+}
+
+func requestError(message string, cause error) error {
+	kind := apperrors.ErrUnavailable
+	var netErr net.Error
+	if errors.Is(cause, context.DeadlineExceeded) || (errors.As(cause, &netErr) && netErr.Timeout()) {
+		kind = apperrors.ErrTimeout
+	} else if errors.Is(cause, apperrors.ErrForbidden) {
+		kind = apperrors.ErrForbidden
+	}
+	return apperrors.Wrap(kind, message, cause)
 }

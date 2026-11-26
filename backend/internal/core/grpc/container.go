@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type ContainerLogic interface {
@@ -18,11 +18,11 @@ type ContainerLogic interface {
 	Start(ctx context.Context, containerID uuid.UUID) error
 	Stop(ctx context.Context, containerID uuid.UUID) error
 	Delete(ctx context.Context, containerID uuid.UUID) error
-	List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error)
+	List(ctx context.Context, query model.ContainerListQuery) (model.ContainerPage, error)
+	Get(ctx context.Context, containerID uuid.UUID) (model.Container, error)
 	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
 	Action(ctx context.Context, containerID uuid.UUID, action string) error
 	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
-	GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error)
 }
 
 type ContainerHandler struct {
@@ -67,6 +67,9 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		EnvVars:      req.GetEnvVars(),
 		VolumeMounts: mounts,
 		DomainPrefix: req.GetDomainPrefix(),
+
+		MemoryReservationMB:      req.GetMemoryReservationMb(),
+		CPUReservationMillicores: req.GetCpuReservationMillicores(),
 	}
 
 	containerID, err := h.logic.Create(ctx, params)
@@ -130,7 +133,7 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 	return &coreapi.Empty{}, nil
 }
 
-func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.ListContainersRequest) (*coreapi.PaginatedContainerResponse, error) {
 	if err := requireUserOrAdminScope(ctx); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -143,50 +146,99 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 		projectID = &parsed
 	}
 	limit, offset := pagination(req)
-	containers, total, err := h.logic.List(ctx, limit, offset, projectID)
+	page, err := h.logic.List(ctx, model.ContainerListQuery{
+		ProjectID: projectID,
+		Limit:     limit,
+		Offset:    offset,
+		ContainerListFilter: model.ContainerListFilter{
+			Status: model.ContainerStatusFilter(req.GetStatus()),
+			Sort:   model.ContainerSortKey(req.GetSort()),
+			Order:  model.SortOrder(req.GetOrder()),
+			Search: req.GetQuery(),
+		},
+	})
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	var pbContainers []*coreapi.ContainerData
-	usernames := h.usernamesByOwner(ctx, containers)
-	for _, c := range containers {
-		var lastExitCode *int32
-		if c.LastExitCode != nil {
-			value := int32(*c.LastExitCode)
-			lastExitCode = &value
-		}
-		var ttlDeadline int64
-		if c.TTLDeadline != nil {
-			ttlDeadline = c.TTLDeadline.Unix()
-		}
-		var projectID string
-		if c.ProjectID != nil {
-			projectID = c.ProjectID.String()
-		}
-		pbContainers = append(pbContainers, &coreapi.ContainerData{
-			Id:            c.ID.String(),
-			DockerId:      c.DockerID,
-			Name:          c.Name,
-			ImageTag:      c.ImageTag,
-			InternalPort:  int32(c.InternalPort),
-			DomainPrefix:  c.DomainPrefix,
-			Status:        c.Status,
-			CreatedAt:     c.CreatedAt.Unix(),
-			OwnerId:       c.OwnerID.String(),
-			OwnerUsername: usernames[c.OwnerID],
-			DesiredStatus: c.DesiredStatus,
-			LastError:     stringValue(c.LastError),
-			LastExitCode:  lastExitCode,
-			TtlDeadline:   ttlDeadline,
-			ProjectId:     projectID,
-		})
+	pbContainers := make([]*coreapi.ContainerData, 0, len(page.Containers))
+	usernames := h.usernamesByOwner(ctx, page.Containers)
+	for _, c := range page.Containers {
+		pbContainers = append(pbContainers, containerToProto(c, usernames[c.OwnerID]))
 	}
 
 	return &coreapi.PaginatedContainerResponse{
 		Containers: pbContainers,
-		TotalCount: int32(total),
+		TotalCount: int32(page.Total),
+		StatusCounts: &coreapi.ContainerStatusCounts{
+			All:       int32(page.Counts.All),
+			Running:   int32(page.Counts.Running),
+			Stopped:   int32(page.Counts.Stopped),
+			Attention: int32(page.Counts.Attention),
+		},
 	}, nil
+}
+
+func (h *ContainerHandler) GetContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerData, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	c, err := h.logic.Get(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	usernames := h.usernamesByOwner(ctx, []model.Container{c})
+	return containerToProto(c, usernames[c.OwnerID]), nil
+}
+
+func containerRefsToProto(refs []model.ContainerRef) []*coreapi.ContainerRef {
+	result := make([]*coreapi.ContainerRef, 0, len(refs))
+	for _, ref := range refs {
+		result = append(result, &coreapi.ContainerRef{ContainerId: ref.ContainerID.String(), Name: ref.Name})
+	}
+	return result
+}
+
+func containerToProto(c model.Container, ownerUsername string) *coreapi.ContainerData {
+	var lastExitCode *int32
+	if c.LastExitCode != nil {
+		value := int32(*c.LastExitCode)
+		lastExitCode = &value
+	}
+	var ttlDeadline int64
+	if c.TTLDeadline != nil {
+		ttlDeadline = c.TTLDeadline.Unix()
+	}
+	var projectID string
+	if c.ProjectID != nil {
+		projectID = c.ProjectID.String()
+	}
+	return &coreapi.ContainerData{
+		Id:            c.ID.String(),
+		DockerId:      c.DockerID,
+		Name:          c.Name,
+		ImageTag:      c.ImageTag,
+		InternalPort:  int32(c.InternalPort),
+		DomainPrefix:  c.DomainPrefix,
+		Status:        c.Status,
+		CreatedAt:     c.CreatedAt.Unix(),
+		OwnerId:       c.OwnerID.String(),
+		OwnerUsername: ownerUsername,
+		DesiredStatus: c.DesiredStatus,
+		LastError:     stringValue(c.LastError),
+		LastExitCode:  lastExitCode,
+		TtlDeadline:   ttlDeadline,
+		ProjectId:     projectID,
+
+		MemoryReservationBytes:   c.BaseMemoryReservation,
+		CpuReservationMillicores: c.BaseCPUReservation,
+	}
 }
 
 func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
@@ -274,33 +326,11 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 	}
 
 	return &coreapi.ContainerStatsResponse{
-		CpuPercentage:    stats.CPUPercentage,
-		MemoryUsageBytes: stats.MemoryUsageBytes,
-		MemoryLimitBytes: stats.MemoryLimitBytes,
-		NetworkRxBytes:   stats.NetworkRxBytes,
-		NetworkTxBytes:   stats.NetworkTxBytes,
-	}, nil
-}
-
-func (h *ContainerHandler) GetContainerRuntimeTarget(ctx context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
-	if err := requireUserOrAdminScope(ctx); err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-	containerID, err := uuid.Parse(req.GetContainerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
-	}
-
-	target, err := h.logic.GetRuntimeTarget(ctx, containerID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.ContainerRuntimeTarget{
-		ContainerId:      target.ContainerID.String(),
-		DockerId:         target.DockerID,
-		Status:           target.Status,
-		OwnerId:          target.OwnerID.String(),
-		DockerGeneration: int32(target.DockerGeneration),
+		CpuPercentage:            stats.CPUPercentage,
+		MemoryUsageBytes:         stats.MemoryUsageBytes,
+		MemoryLimitBytes:         stats.MemoryLimitBytes,
+		MemoryStandardLimitBytes: stats.MemoryStandardLimitBytes,
+		NetworkRxBytes:           stats.NetworkRxBytes,
+		NetworkTxBytes:           stats.NetworkTxBytes,
 	}, nil
 }

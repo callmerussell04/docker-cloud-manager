@@ -1,4 +1,4 @@
-package grpcclient
+package client
 
 import (
 	"context"
@@ -6,10 +6,11 @@ import (
 
 	"google.golang.org/grpc"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type CoreClient struct {
@@ -43,24 +44,25 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		MaxUnpackedSizeBytes:      resp.GetMaxUnpackedSizeBytes(),
 		MaxBuildLogSizeBytes:      resp.GetMaxBuildLogSizeBytes(),
 		BuildCancelPollInterval:   time.Duration(resp.GetBuildCancelPollIntervalSeconds()) * time.Second,
+		BuildMaxDiskBytes:         resp.GetBuildMaxDiskBytes(),
 	}, nil
 }
 
-func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error) {
+func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (model.BuildClaim, bool, model.BuildStatus, error) {
 	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.imageAPI.StartBuildRecord(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
-		return "", false, "", grpcerrors.FromGRPC(err)
+		return model.BuildClaim{}, false, "", grpcerrors.FromGRPC(err)
 	}
-	return resp.GetImageId(), resp.GetStarted(), resp.GetStatus(), nil
+	return model.BuildClaim{ImageID: resp.GetImageId(), RegistryUsername: resp.GetRegistryUsername(), RegistryPassword: resp.GetRegistryPassword(), Destination: resp.GetRegistryDestination()}, resp.GetStarted(), model.BuildStatus(resp.GetStatus()), nil
 }
 
-func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, buildStatus string, sizeMB int) error {
+func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID string, buildStatus model.BuildStatus, sizeMB int) error {
 	ctx = accessscope.WithSystemScope(ctx)
 	req := &coreapi.CompleteBuildRequest{
 		BuildId: buildID,
 		ImageId: imageID,
-		Status:  buildStatus,
+		Status:  string(buildStatus),
 		SizeMb:  int32(sizeMB),
 	}
 
@@ -72,11 +74,11 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 	return nil
 }
 
-func (c *CoreClient) GetBuildStatus(ctx context.Context, buildID string) (string, error) {
+func (c *CoreClient) GetBuildStatus(ctx context.Context, buildID string) (model.BuildStatus, error) {
 	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.imageAPI.GetBuildStatus(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
 	}
-	return resp.GetStatus(), nil
+	return model.BuildStatus(resp.GetStatus()), nil
 }

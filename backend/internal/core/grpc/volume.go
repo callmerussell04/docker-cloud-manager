@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type VolumeLogic interface {
@@ -38,7 +38,8 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 	}
 
 	params := model.VolumeCreateParams{
-		Name: req.GetName(),
+		Name:      req.GetName(),
+		SizeBytes: req.GetSizeBytes(),
 	}
 
 	volumeID, err := h.logic.Create(ctx, params)
@@ -92,6 +93,9 @@ func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.Pagination
 			LastError:       stringValue(v.LastError),
 			UsedBytes:       v.UsedBytes,
 			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
+			SizeBytes:       v.SizeBytes,
+			SizeEnforced:    v.SizeEnforced,
+			UsedBy:          containerRefsToProto(v.UsedBy),
 		})
 	}
 

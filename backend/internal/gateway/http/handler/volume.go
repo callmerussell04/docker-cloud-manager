@@ -4,12 +4,12 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/gin-gonic/gin"
 )
 

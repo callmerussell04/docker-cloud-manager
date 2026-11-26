@@ -8,9 +8,11 @@ service Auth {
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc Refresh (RefreshRequest) returns (RefreshResponse);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
   rpc GetAuthConfig (GetAuthConfigRequest) returns (GetAuthConfigResponse);
   rpc StartOIDCLogin (StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
   rpc CompleteOIDCCallback (CompleteOIDCCallbackRequest) returns (CompleteOIDCCallbackResponse);
+  rpc BackchannelLogout (BackchannelLogoutRequest) returns (BackchannelLogoutResponse);
 }
 
 service UserAPI {
@@ -40,9 +42,42 @@ message LoginRequest {
   string password = 2;
 }
 
+// SignedInUser names the user a sign-in authenticated, so Gateway can
+// attribute the sign-in to that user.
+message SignedInUser {
+  string id = 1;
+  string username = 2;
+  string role = 3;
+}
+
 message LoginResponse {
   string access_token = 1;
   string refresh_token = 2;
+  int64 refresh_expires_at = 3;
+  SignedInUser user = 4;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+  // Where the provider returns the browser after its sign-out; Gateway sends
+  // the validated request origin plus the login path.
+  string post_logout_redirect_uri = 2;
+}
+
+message LogoutResponse {
+  // The provider sign-out URL for a session created through OIDC; empty
+  // otherwise.
+  string provider_logout_url = 1;
+}
+
+// A back-channel logout token the provider posted to Gateway.
+message BackchannelLogoutRequest {
+  string provider = 1;
+  string logout_token = 2;
+}
+
+message BackchannelLogoutResponse {
+  int32 revoked_sessions = 1;
 }
 
 message RefreshRequest {
@@ -52,12 +87,15 @@ message RefreshRequest {
 message RefreshResponse {
   string access_token = 1;
   string refresh_token = 2;
+  int64 refresh_expires_at = 3;
 }
 
 message GetAuthConfigRequest {}
 
 message OIDCProviderData {
   string name = 1;
+  // available is false while SSO has not reached the provider; sign-in through it answers unavailable.
+  bool available = 2;
 }
 
 message GetAuthConfigResponse {
@@ -73,7 +111,12 @@ message StartOIDCLoginRequest {
 
 message StartOIDCLoginResponse {
   string auth_url = 1;
+  // state_binding is the secret Gateway keeps in the attempt's browser cookie.
   string state_binding = 2;
+  // state names the attempt; Gateway derives the cookie name from it.
+  string state = 3;
+  // expires_at (Unix seconds) is when the attempt expires; Gateway sets the cookie lifetime from it.
+  int64 expires_at = 4;
 }
 
 message CompleteOIDCCallbackRequest {
@@ -83,10 +126,28 @@ message CompleteOIDCCallbackRequest {
   string state_binding = 4;
 }
 
+// OIDCCallbackOutcome is how a callback ended when it ended as expected.
+// Provider or SSO unavailability and timeouts are gRPC errors instead.
+enum OIDCCallbackOutcome {
+  OIDC_CALLBACK_OUTCOME_UNSPECIFIED = 0;
+  OIDC_CALLBACK_OUTCOME_SUCCESS = 1;
+  // The attempt is unknown, expired, already used, or bound to another browser.
+  OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT = 2;
+  OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED = 3;
+  OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED = 4;
+  OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT = 5;
+}
+
 message CompleteOIDCCallbackResponse {
+  // Tokens are set only with OIDC_CALLBACK_OUTCOME_SUCCESS.
   string access_token = 1;
   string refresh_token = 2;
+  // redirect_after is the attempt's target once the attempt was consumed, and empty before.
   string redirect_after = 3;
+  int64 refresh_expires_at = 4;
+  OIDCCallbackOutcome outcome = 5;
+  // user is set only with OIDC_CALLBACK_OUTCOME_SUCCESS.
+  SignedInUser user = 6;
 }
 
 message VerifyTokenRequest {
@@ -120,10 +181,15 @@ message UserData {
   string username = 2;
   string email = 3;
   string role = 4;
-  int64 quota_ram_mb = 5;
-  int64 quota_disk_mb = 6;
-  double quota_cpu = 7;
   string status = 8;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 5, 6, 7;
+  reserved "quota_ram_mb", "quota_disk_mb", "quota_cpu";
+  // Where the account comes from: "local" or "oidc".
+  string auth_source = 9;
+  // True for an OIDC user while administrator groups are configured: the
+  // identity provider owns the role and SSO refuses to change it.
+  bool role_managed_by_provider = 10;
 }
 
 message BatchGetUsersResponse {
@@ -146,9 +212,9 @@ message CreateUserRequest {
   string password = 3;
   string role = 4;
   string status = 5;
-  double quota_cpu = 6;
-  int64 quota_ram_mb = 7;
-  int64 quota_disk_mb = 8;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 6, 7, 8;
+  reserved "quota_cpu", "quota_ram_mb", "quota_disk_mb";
 }
 
 message UpdateUserRequest {
@@ -158,7 +224,7 @@ message UpdateUserRequest {
   string password = 4;
   string role = 5;
   string status = 6;
-  double quota_cpu = 7;
-  int64 quota_ram_mb = 8;
-  int64 quota_disk_mb = 9;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 7, 8, 9;
+  reserved "quota_cpu", "quota_ram_mb", "quota_disk_mb";
 }

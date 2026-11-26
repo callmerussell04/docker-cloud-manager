@@ -2,16 +2,20 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
 )
@@ -19,27 +23,40 @@ import (
 type Parser struct{}
 
 var supportedComposeServiceKeys = map[string]struct{}{
-	"build":        {},
-	"command":      {},
-	"depends_on":   {},
-	"entrypoint":   {},
-	"environment":  {},
-	"healthcheck":  {},
-	"image":        {},
-	"labels":       {},
-	"name":         {},
-	"network_mode": {},
-	"pid":          {},
-	"privileged":   {},
-	"profiles":     {},
-	"restart":      {},
-	"volumes":      {},
+	"build":           {},
+	"command":         {},
+	"depends_on":      {},
+	"entrypoint":      {},
+	"environment":     {},
+	"healthcheck":     {},
+	"image":           {},
+	"deploy":          {},
+	"labels":          {},
+	"mem_reservation": {},
+	"name":            {},
+	"network_mode":    {},
+	"pid":             {},
+	"privileged":      {},
+	"profiles":        {},
+	"restart":         {},
+	"volumes":         {},
 }
 
 var supportedComposeBuildKeys = map[string]struct{}{
 	"args":       {},
 	"context":    {},
 	"dockerfile": {},
+}
+
+// supportedComposeDeployKeys keeps only the reservations of deploy: DCM reads
+// a service's memory and CPU reservation and derives its limits itself.
+var supportedComposeDeployKeys = map[string]struct{}{"resources": {}}
+
+var supportedComposeResourcesKeys = map[string]struct{}{"reservations": {}}
+
+var supportedComposeReservationKeys = map[string]struct{}{
+	"cpus":   {},
+	"memory": {},
 }
 
 var supportedComposeVolumeKeys = map[string]struct{}{
@@ -49,15 +66,6 @@ var supportedComposeVolumeKeys = map[string]struct{}{
 
 func NewParser() *Parser {
 	return &Parser{}
-}
-
-// ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
-func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
-	return p.ParseAndValidateWithBase(ctx, projectName, yamlContent, reservedDomainPrefixes, "")
-}
-
-func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
-	return p.ParseAndValidateWithBaseAndBlocked(ctx, projectName, yamlContent, reservedDomainPrefixes, nil, baseDir)
 }
 
 func (p *Parser) ParseAndValidateWithBaseAndBlocked(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, blockedDomainPrefixPatterns []string, baseDir string) (*model.ComposeProject, error) {
@@ -71,8 +79,7 @@ func (p *Parser) ParseAndValidateWithBaseAndBlocked(ctx context.Context, project
 
 	project, err := p.loadComposeProject(ctx, projectName, yamlContent)
 	if err != nil {
-		// Ошибка может возникнуть как на этапе парсинга YAML, так и на этапе проверки ссылок Compose
-		return nil, fmt.Errorf("%w: failed to parse compose file: %v", apperrors.ErrBadRequest, err)
+		return nil, composeLoadError(err)
 	}
 
 	// Строгая проверка безопасности
@@ -106,17 +113,91 @@ func (p *Parser) loadComposeProject(ctx context.Context, projectName string, yam
 		},
 	}
 
-	composeModel, err := loader.LoadModelWithContext(ctx, config, options...)
+	composeModel, err := recoverComposeGo(func() (map[string]any, error) {
+		return loader.LoadModelWithContext(ctx, config, options...)
+	})
 	if err != nil {
 		return nil, err
 	}
 	sanitizeComposeModel(composeModel)
 
-	project, err := loader.ModelToProject(composeModel, loader.ToOptions(&config, options), config)
-	if err != nil {
-		return nil, err
+	return recoverComposeGo(func() (*types.Project, error) {
+		return loader.ModelToProject(composeModel, loader.ToOptions(&config, options), config)
+	})
+}
+
+// composeLoadError replaces a compose-go load failure with a fixed bad-request
+// message. compose-go errors quote the uploaded file, including interpolated
+// environment values, and the message reaches the uploader, the stored
+// deployment error and the job log, so the cause is dropped, not wrapped.
+//
+// A YAML decoding failure (an error in the chain whose message starts with
+// "yaml: ") keeps its position when the message carries a reliable one. The
+// YAML library does not export its syntax error types, and its exported
+// LoadError holds only the document's line for a nested construct error, so
+// the position is read from the library's own message. The patterns are
+// anchored to the library's fixed wording and capture digits only, so they
+// cannot carry file content.
+func composeLoadError(err error) error {
+	for ; err != nil; err = errors.Unwrap(err) {
+		message := err.Error()
+		if !strings.HasPrefix(message, "yaml: ") {
+			continue
+		}
+		if position, ok := yamlErrorPosition(message); ok {
+			return fmt.Errorf("%w: compose file is not valid YAML (%s)", apperrors.ErrBadRequest, position)
+		}
+		return fmt.Errorf("%w: compose file is not valid YAML", apperrors.ErrBadRequest)
 	}
-	return project, nil
+	return fmt.Errorf("%w: compose file is not a valid Compose project", apperrors.ErrBadRequest)
+}
+
+var (
+	// yamlSyntaxPosition matches a go.yaml.in/yaml parser or scanner error.
+	// An optional lowercase context names the enclosing construct, and a
+	// second mark, when present, is the problem itself:
+	//   "yaml: line 5, column 22: ..."
+	//   "yaml: while scanning for the next token at line 5, column 22: ..."
+	//   "yaml: while scanning a quoted scalar at line 5, column 14: line 6: ..."
+	yamlSyntaxPosition = regexp.MustCompile(`^yaml: (?:[a-z ]+ at )?line (\d+)(?:, column (\d+))?: (?:line (\d+)(?:, column (\d+))?: )?`)
+	// yamlConstructPosition matches a go.yaml.in/yaml construct error with
+	// nested line prefixes: "yaml: construct errors:\n  line 1: line 4: ...".
+	// The outermost is the document and the innermost the offending node. A
+	// single prefix is only the document's line, so it gives no position.
+	yamlConstructPosition = regexp.MustCompile(`^yaml: construct errors:\n  line \d+: (?:line \d+: )*line (\d+): `)
+)
+
+func yamlErrorPosition(message string) (string, bool) {
+	if match := yamlConstructPosition.FindStringSubmatch(message); match != nil {
+		return "line " + match[1], true
+	}
+	match := yamlSyntaxPosition.FindStringSubmatch(message)
+	if match == nil {
+		return "", false
+	}
+	line, column := match[1], match[2]
+	if match[3] != "" {
+		line, column = match[3], match[4]
+	}
+	if column == "" {
+		return "line " + line, true
+	}
+	return "line " + line + ", column " + column, true
+}
+
+// recoverComposeGo runs one compose-go call. compose-go type-asserts sections
+// it expects to be maps and panics on untrusted input such as `services:` with
+// no value; that is reported as an invalid Compose project (see
+// composeLoadError) instead of crashing the request or deployment worker.
+// Panics in DCM's own code are not recovered.
+func recoverComposeGo[T any](call func() (T, error)) (result T, err error) {
+	defer func() {
+		if recover() != nil {
+			var zero T
+			result, err = zero, errors.New("compose file is malformed")
+		}
+	}()
+	return call()
 }
 
 func sanitizeComposeModel(composeModel map[string]any) {
@@ -148,6 +229,36 @@ func sanitizeComposeServices(services map[string]any) {
 		pruneStringMap(service, supportedComposeServiceKeys)
 		sanitizeComposeServiceBuild(service)
 		sanitizeComposeServiceDependsOn(service)
+		sanitizeComposeServiceDeploy(service)
+	}
+}
+
+// sanitizeComposeServiceDeploy prunes deploy down to
+// resources.reservations.memory and resources.reservations.cpus. It then
+// settles the memory precedence that compose-go would otherwise refuse as
+// distinct values: a deploy memory reservation drops mem_reservation, and
+// without one mem_reservation moves into the deploy reservations.
+func sanitizeComposeServiceDeploy(service map[string]any) {
+	deploy, ok := asStringMap(service["deploy"])
+	if !ok {
+		return
+	}
+	pruneStringMap(deploy, supportedComposeDeployKeys)
+	resources, ok := asStringMap(deploy["resources"])
+	if !ok {
+		return
+	}
+	pruneStringMap(resources, supportedComposeResourcesKeys)
+	reservations, ok := asStringMap(resources["reservations"])
+	if !ok {
+		return
+	}
+	pruneStringMap(reservations, supportedComposeReservationKeys)
+	if memReservation, ok := service["mem_reservation"]; ok {
+		if memory, ok := reservations["memory"]; !ok || memory == nil {
+			reservations["memory"] = memReservation
+		}
+		delete(service, "mem_reservation")
 	}
 }
 
@@ -228,7 +339,7 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 			if vol.Type == types.VolumeTypeBind {
 				// Категорически запрещаем абсолютные пути (например, /var/run/docker.sock или /etc)
 				if strings.HasPrefix(vol.Source, "/") {
-					return fmt.Errorf("%w: absolute bind mounts are not allowed: %s", apperrors.ErrBadRequest, vol.Source)
+					return fmt.Errorf("%w: absolute bind mounts are not allowed", apperrors.ErrBadRequest)
 				}
 			}
 		}
@@ -247,7 +358,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	volumeMap := make(map[string]string)
 	for volName, volConfig := range project.Volumes {
 		if err := validation.ResourceName(volName); err != nil {
-			return nil, fmt.Errorf("%w: volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
+			return nil, fmt.Errorf("%w: volume has invalid name: %v", apperrors.ErrBadRequest, err)
 		}
 		displayName := volName
 		if bool(volConfig.External) {
@@ -291,7 +402,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	// ForEachService гарантирует вызов колбэка в правильном порядке (с учетом depends_on)
 	err := project.ForEachService(allServiceNames, func(serviceName string, srv *types.ServiceConfig) error {
 		if err := validation.ResourceName(srv.Name); err != nil {
-			return fmt.Errorf("%w: service %s has invalid name: %v", apperrors.ErrBadRequest, srv.Name, err)
+			return fmt.Errorf("%w: service has invalid name: %v", apperrors.ErrBadRequest, err)
 		}
 
 		domainSrv := model.ComposeService{
@@ -336,6 +447,12 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 		if err := validation.ImageTag(domainSrv.ImageTag); err != nil {
 			return fmt.Errorf("%w: invalid image tag for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 		}
+
+		memoryMB, millicores, err := serviceReservation(srv)
+		if err != nil {
+			return err
+		}
+		domainSrv.MemoryReservationMB, domainSrv.CPUReservationMillicores = memoryMB, millicores
 
 		// Копируем переменные окружения
 		for key, val := range srv.Environment {
@@ -388,9 +505,10 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 
 		// Копируем маунты томов
 		for _, vol := range srv.Volumes {
-			if vol.Type == types.VolumeTypeVolume {
+			switch vol.Type {
+			case types.VolumeTypeVolume:
 				if _, exists := volumeMap[vol.Source]; !exists {
-					return fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
+					return fmt.Errorf("%w: service %s references an undefined volume", apperrors.ErrBadRequest, srv.Name)
 				}
 				if err := validation.MountPath(vol.Target); err != nil {
 					return fmt.Errorf("%w: invalid mount path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
@@ -400,8 +518,8 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 					MountPath:  vol.Target,
 					IsReadOnly: vol.ReadOnly,
 				})
-			} else if vol.Type == types.VolumeTypeBind {
-				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS for path: %s", apperrors.ErrBadRequest, vol.Source)
+			case types.VolumeTypeBind:
+				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS", apperrors.ErrBadRequest)
 			}
 		}
 
@@ -457,6 +575,43 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	}
 
 	return result, nil
+}
+
+// serviceReservation returns a service's memory reservation in whole MB,
+// rounded up, and its CPU reservation in millicores, rounded to the nearest.
+// Memory comes from deploy.resources.reservations.memory, else
+// mem_reservation; CPU from deploy.resources.reservations.cpus. Zero means no
+// figure. A figure outside the container reservation bounds is a bad request
+// that names the service and not the figure.
+func serviceReservation(srv *types.ServiceConfig) (memoryMB, millicores int64, err error) {
+	memoryBytes := int64(srv.MemReservation)
+	var cores float64
+	if srv.Deploy != nil && srv.Deploy.Resources.Reservations != nil {
+		reservations := srv.Deploy.Resources.Reservations
+		if reservations.MemoryBytes != 0 {
+			memoryBytes = int64(reservations.MemoryBytes)
+		}
+		cores = float64(reservations.NanoCPUs)
+	}
+	if memoryBytes != 0 {
+		if memoryBytes < config.MinMemoryReservationBytes || memoryBytes > config.MaxMemoryReservationBytes {
+			return 0, 0, fmt.Errorf("%w: memory reservation for service %s must be %s", apperrors.ErrBadRequest, srv.Name, config.MemoryReservationRange())
+		}
+		memoryMB = model.BytesToMBRoundedUp(memoryBytes)
+	}
+	if cores != 0 {
+		// compose-go keeps cpus as float32, so 0.01 arrives as 9.9999998
+		// millicores: snap to a thousandth of a millicore first. The bounds
+		// then hold before rounding to whole millicores, so a figure just
+		// below the minimum is not rounded into it. The comparison is false
+		// for NaN, so NaN is rejected too.
+		scaled := math.Round(cores*1000*1000) / 1000
+		if !(scaled >= float64(config.MinCPUReservationMillicores) && scaled <= float64(config.MaxCPUReservationMillicores)) {
+			return 0, 0, fmt.Errorf("%w: cpu reservation for service %s must be %s", apperrors.ErrBadRequest, srv.Name, config.CPUReservationRangeInCores())
+		}
+		millicores = int64(math.Round(scaled))
+	}
+	return memoryMB, millicores, nil
 }
 
 func isSupportedRestartPolicy(policy string) bool {

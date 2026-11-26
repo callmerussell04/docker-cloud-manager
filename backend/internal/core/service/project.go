@@ -8,11 +8,13 @@ import (
 	"slices"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dependencywait"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/dependencywait"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
@@ -23,9 +25,6 @@ type ProjectRepository interface {
 	List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 	GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error)
-}
-
-type ProjectLifecycleRepository interface {
 	ListByStatuses(ctx context.Context, statuses []string, limit int) ([]model.Project, error)
 }
 
@@ -68,21 +67,52 @@ type ProjectService struct {
 	containers     ProjectContainerLifecycle
 	volumes        ProjectVolumeLifecycle
 	networkCleaner ProjectNetworkCleaner
+	capacity       CapacityChecker
 	cfg            ProjectConfigProvider
 	deployments    ProjectDeploymentCanceler
+	logger         *slog.Logger
 }
 
-func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, containers ProjectContainerLifecycle, volumes ProjectVolumeLifecycle, cfg ProjectConfigProvider) *ProjectService {
-	networkCleaner, _ := containers.(ProjectNetworkCleaner)
-	return &ProjectService{
-		repo:           repo,
-		resourceRepo:   resourceRepo,
-		dockerAPI:      dockerAPI,
-		containers:     containers,
-		volumes:        volumes,
-		networkCleaner: networkCleaner,
-		cfg:            cfg,
+// ProjectServiceDeps contains the mandatory project lifecycle and start-admission
+// capabilities. Network cleanup stays optional and is discovered on Containers.
+// A nil Logger uses the default logger.
+type ProjectServiceDeps struct {
+	Repository ProjectRepository
+	Resources  ProjectResourceRepository
+	Docker     ProjectDockerAPI
+	Containers ProjectContainerLifecycle
+	Volumes    ProjectVolumeLifecycle
+	Capacity   CapacityChecker
+	Config     ProjectConfigProvider
+	Logger     *slog.Logger
+}
+
+func NewProjectService(deps ProjectServiceDeps) (*ProjectService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"resources", deps.Resources},
+		{"docker", deps.Docker}, {"containers", deps.Containers},
+		{"volumes", deps.Volumes}, {"capacity", deps.Capacity}, {"config", deps.Config},
 	}
+	for _, dependency := range required {
+		if nilcheck.IsNil(dependency.value) {
+			return nil, fmt.Errorf("project service: %s is required", dependency.name)
+		}
+	}
+	networkCleaner, _ := deps.Containers.(ProjectNetworkCleaner)
+	return &ProjectService{
+		repo:           deps.Repository,
+		resourceRepo:   deps.Resources,
+		dockerAPI:      deps.Docker,
+		containers:     deps.Containers,
+		volumes:        deps.Volumes,
+		networkCleaner: networkCleaner,
+		capacity:       deps.Capacity,
+		cfg:            deps.Config,
+		logger:         logging.WithComponent(deps.Logger, "project_service"),
+	}, nil
 }
 
 func (s *ProjectService) SetDeploymentCanceler(canceler ProjectDeploymentCanceler) {
@@ -90,13 +120,7 @@ func (s *ProjectService) SetDeploymentCanceler(canceler ProjectDeploymentCancele
 }
 
 func (s *ProjectService) RunLifecycleCoordinator(ctx context.Context) {
-	interval := 2 * time.Second
-	if s.cfg != nil {
-		if configured := time.Duration(s.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second; configured > 0 {
-			interval = configured
-		}
-	}
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(s.coordinatorInterval())
 	defer ticker.Stop()
 	s.advanceLifecycleProjects(ctx)
 	for {
@@ -105,24 +129,22 @@ func (s *ProjectService) RunLifecycleCoordinator(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.advanceLifecycleProjects(ctx)
-			interval = 2 * time.Second
-			if s.cfg != nil {
-				if configured := time.Duration(s.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second; configured > 0 {
-					interval = configured
-				}
-			}
-			ticker.Reset(interval)
+			ticker.Reset(s.coordinatorInterval())
 		}
 	}
 }
 
-func (s *ProjectService) advanceLifecycleProjects(ctx context.Context) {
-	lifecycleRepo, ok := s.repo.(ProjectLifecycleRepository)
-	if !ok {
-		return
+func (s *ProjectService) coordinatorInterval() time.Duration {
+	if configured := time.Duration(s.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second; configured > 0 {
+		return configured
 	}
-	projects, err := lifecycleRepo.ListByStatuses(ctx, []string{model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting}, 50)
+	return 2 * time.Second
+}
+
+func (s *ProjectService) advanceLifecycleProjects(ctx context.Context) {
+	projects, err := s.repo.ListByStatuses(ctx, []string{model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting}, 50)
 	if err != nil {
+		s.logger.WarnContext(ctx, "failed to list transitioning projects", "error", err)
 		return
 	}
 	for _, p := range projects {
@@ -201,6 +223,19 @@ func (s *ProjectService) Cancel(ctx context.Context, projectID uuid.UUID) error 
 	return s.deployments.CancelDeployment(ctx, projectID)
 }
 
+// Get returns one project the caller's scope may read. Another user's project
+// is reported as not found.
+func (s *ProjectService) Get(ctx context.Context, projectID uuid.UUID) (model.Project, error) {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return model.Project{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
+		return model.Project{}, err
+	}
+	return p, nil
+}
+
 func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
@@ -216,41 +251,27 @@ func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.P
 	})
 }
 
+// ensureStartCapacity preflights the containers a project start gives new
+// capacity: those that are not missing, not in error and do not already
+// reserve capacity by the reservation rule (model.Container.ReservesCapacity).
 func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Project) error {
-	checker, ok := s.containers.(CapacityChecker)
-	if !ok || s.resourceRepo == nil {
-		return nil
-	}
 	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
 	if err != nil {
 		return err
 	}
-	requestedRam := int64(0)
-	requestedCPU := int64(0)
-	cfg := config.SystemConfig{}
-	if s.cfg != nil {
-		cfg = s.cfg.Get()
-	}
+	var memoryBytes, cpuMillicores int64
+	cfg := s.cfg.Get()
 	for _, container := range containers {
-		switch container.Status {
-		case model.ContainerStatusRunning, model.ContainerStatusStarting, model.ContainerStatusMissing, model.ContainerStatusError:
+		if container.Status == model.ContainerStatusMissing || container.Status == model.ContainerStatusError || container.ReservesCapacity() {
 			continue
 		}
-		reservation := container.BaseMemoryReservation
-		if reservation <= 0 && s.cfg != nil {
-			reservation = cfg.DefaultMemoryReservation
-		}
-		requestedRam += reservation
-		cpuReservation := container.BaseCPUReservation
-		if cpuReservation <= 0 && s.cfg != nil {
-			cpuReservation = cfg.DefaultCPUReservation
-		}
-		requestedCPU += cpuReservation
+		memoryBytes += cfg.MemoryReservationOrDefault(container.BaseMemoryReservation)
+		cpuMillicores += cfg.CPUReservationOrDefault(container.BaseCPUReservation)
 	}
-	if requestedRam <= 0 && requestedCPU <= 0 {
+	if memoryBytes <= 0 && cpuMillicores <= 0 {
 		return nil
 	}
-	return checker.CheckCapacity(ctx, p.OwnerID, requestedRam, requestedCPU, 0)
+	return s.capacity.CheckCapacity(ctx, p.OwnerID, memoryBytes, cpuMillicores)
 }
 
 func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {
@@ -376,7 +397,9 @@ func (s *ProjectService) advanceProjectDelete(ctx context.Context, p model.Proje
 	if err != nil {
 		return err
 	}
-	for _, c := range containers {
+	// One container is advanced per tick; the next tick resumes with the remainder.
+	if len(containers) > 0 {
+		c := containers[0]
 		if c.Status == model.ContainerStatusDeleting {
 			return nil
 		}
@@ -422,9 +445,13 @@ func containerStatusBlocksProjectTick(status string) bool {
 	}
 }
 
+// failProject records a failed lifecycle transition. A failed write is logged;
+// the project stays in its transition and the next pass retries it.
 func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, cause error) {
 	msg := apperrors.SafeMessage(cause)
-	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+	if err := s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg); err != nil {
+		s.logger.WarnContext(ctx, "failed to record project status", "project_id", projectID, "status", model.ProjectStatusFailed, "error", err)
+	}
 }
 
 func projectStatusBlocksAggregation(status string) bool {
@@ -449,5 +476,5 @@ func (s *ProjectService) cleanupUserNetwork(ctx context.Context, ownerID uuid.UU
 	if s.networkCleaner == nil {
 		return
 	}
-	_ = s.networkCleaner.CleanupUserNetworkIfUnused(ctx, ownerID)
+	_ = s.networkCleaner.CleanupUserNetworkIfUnused(ctx, ownerID) // best-effort cleanup; CleanupUserNetworkIfUnused logs its own failures
 }

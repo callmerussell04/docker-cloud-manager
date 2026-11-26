@@ -78,3 +78,40 @@ type ResourceLifecycleOutbox struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
+
+// OperationRecoveryScope selects the running operations a recovery statement
+// settles. Startup recovery and the operation recovery pass share the
+// statements and differ only in their scope.
+type OperationRecoveryScope struct {
+	// RunningLongerThan, when positive, settles only operations claimed longer
+	// ago than this on the database clock. Zero settles every running
+	// operation, as startup recovery does before any worker runs.
+	RunningLongerThan time.Duration
+	// ReturnAttempt gives the attempt the interrupted worker spent back to
+	// the operation's retry budget.
+	ReturnAttempt bool
+}
+
+// RecoveredOperation names a queued operation that a recovery statement
+// settled.
+type RecoveredOperation struct {
+	ID           uuid.UUID
+	ResourceType string
+	ResourceID   uuid.UUID
+	Operation    string
+}
+
+// LostDeliveryRecovery reports the pending operations whose message was no
+// longer in the queue: republished ones, and ones ended because their
+// resource no longer exists.
+type LostDeliveryRecovery struct {
+	Republished []RecoveredOperation
+	Ended       []RecoveredOperation
+}
+
+// RecoveredDeployment names a queued Compose deployment job whose message was
+// republished.
+type RecoveredDeployment struct {
+	JobID     uuid.UUID
+	ProjectID uuid.UUID
+}

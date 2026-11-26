@@ -9,10 +9,12 @@ service ContainerAPI {
   rpc StartContainer (ContainerActionRequest) returns (Empty);
   rpc StopContainer (ContainerActionRequest) returns (Empty);
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
-  rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
+  rpc ListContainers (ListContainersRequest) returns (PaginatedContainerResponse);
+  rpc GetContainer (ContainerActionRequest) returns (ContainerData);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
-  rpc GetContainerRuntimeTarget (ContainerRuntimeTargetRequest) returns (ContainerRuntimeTarget);
+  // Removed with the Telemetry service; do not reuse: GetContainerRuntimeTarget
+  // (messages ContainerRuntimeTargetRequest, ContainerRuntimeTarget).
 }
 
 service ImageAPI {
@@ -35,6 +37,7 @@ service VolumeAPI {
 
 service ProjectAPI {
   rpc ListProjects (PaginationRequest) returns (PaginatedProjectResponse);
+  rpc GetProject (ProjectActionRequest) returns (ProjectData);
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
   rpc StartProject (ProjectActionRequest) returns (Empty);
   rpc StopProject (ProjectActionRequest) returns (Empty);
@@ -45,7 +48,30 @@ service SystemAPI {
   rpc GetConfig (Empty) returns (SystemConfigData);
   rpc UpdateConfig (SystemConfigData) returns (Empty);
   rpc GetBuilderRuntimeConfig (Empty) returns (BuilderRuntimeConfigData);
-  rpc GetTelemetryRuntimeConfig (Empty) returns (TelemetryRuntimeConfigData);
+  // Removed with the Telemetry service; do not reuse: GetTelemetryRuntimeConfig
+  // (message TelemetryRuntimeConfigData).
+}
+
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+service QuotaAPI {
+  // GetUserQuotas returns the effective quota of each user, marked custom or
+  // default. At most 100 users per call.
+  rpc GetUserQuotas (GetUserQuotasRequest) returns (UserQuotasResponse);
+  rpc SetUserQuota (SetUserQuotaRequest) returns (UserQuotaData);
+  // ResetUserQuota returns the user to the default quota and returns it.
+  rpc ResetUserQuota (UserQuotaActionRequest) returns (UserQuotaData);
+}
+
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+service WorkloadAPI {
+  // SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+  // data: it queues a stop for each container that is running or meant to
+  // run, and cancels their pending and running builds and active Compose
+  // deployments. A container with an operation in progress is skipped.
+  // Calling it again does what remains and nothing twice.
+  rpc SuspendUserWorkloads (SuspendUserWorkloadsRequest) returns (SuspendUserWorkloadsResponse);
 }
 
 service StatsAPI {
@@ -62,6 +88,49 @@ service ReportAPI {
   rpc RefreshUsageSnapshots (Empty) returns (RefreshUsageSnapshotsResponse);
 }
 
+message GetUserQuotasRequest {
+  repeated string user_ids = 1;
+}
+
+message UserQuotaData {
+  string user_id = 1;
+  // CPU in cores; memory and disk in MB.
+  double cpu = 2;
+  int64 ram_mb = 3;
+  int64 disk_mb = 4;
+  // False when the user has the default quota.
+  bool custom = 5;
+}
+
+message UserQuotasResponse {
+  repeated UserQuotaData quotas = 1;
+}
+
+message SetUserQuotaRequest {
+  string user_id = 1;
+  double cpu = 2;
+  int64 ram_mb = 3;
+  int64 disk_mb = 4;
+}
+
+message UserQuotaActionRequest {
+  string user_id = 1;
+}
+
+message SuspendUserWorkloadsRequest {
+  string user_id = 1;
+}
+
+message SuspendUserWorkloadsResponse {
+  int32 stopped_containers = 1;
+  // Containers left running because another operation was in progress.
+  int32 skipped_containers = 2;
+  int32 canceled_builds = 3;
+  int32 canceled_deployments = 4;
+  // Workloads that could not be stopped or canceled this time.
+  int32 failed = 5;
+}
+
 message UserStatsResponse {
   int32 containers_total = 1;
   int32 containers_running = 2;
@@ -74,6 +143,9 @@ message UserStatsResponse {
   int32 volumes_quota = 9;
   int32 images_total = 10;
   int32 projects_total = 11;
+  // CPU the user's containers reserve, and the user's CPU quota.
+  int64 cpu_used_millicores = 12;
+  int64 cpu_quota_millicores = 13;
 }
 
 message SystemMonitoringResponse {
@@ -100,6 +172,30 @@ message SystemMonitoringResponse {
   repeated string admission_reasons = 21;
   int64 host_min_free_disk_bytes = 22;
   int64 dcm_reserved_build_memory_bytes = 23;
+  int64 dcm_borrowed_memory_bytes = 24;
+  // enforced, not_enforced or unknown: whether the container root filesystem
+  // cap is enforced on this host.
+  string rootfs_quota_status = 25;
+  // The sum of the sizes of all volumes not being deleted.
+  int64 dcm_reserved_volume_bytes = 26;
+  // measured, enforced or unavailable: how volume sizes are enforced.
+  string volume_size_mode = 27;
+  // Over the same volumes, each size less its measured usage, never below
+  // zero: the disk promised to volumes and not used yet.
+  int64 dcm_unused_volume_promise_bytes = 28;
+  // The cap the next build claim would get: max_concurrent_builds, or fewer
+  // when the free disk above the floor cannot hold that many build slots.
+  int32 build_claim_cap = 29;
+  int32 max_concurrent_builds = 30;
+  // CPU reserved by every container that reserves capacity, and CPU held by
+  // the occupied build slots, both in millicores.
+  int64 dcm_reserved_cpu_millicores = 31;
+  int64 dcm_reserved_build_cpu_millicores = 32;
+  // Builds pending or running, queued ones included; build slots in use are
+  // min(builds_active, max_concurrent_builds).
+  int32 builds_active = 33;
+  // The host's logical CPUs in millicores.
+  int64 cpu_total_millicores = 34;
 }
 
 message Empty {}
@@ -255,6 +351,9 @@ message CreateContainerRequest {
   map<string, string> env_vars = 5;
   repeated VolumeMount volume_mounts = 6;
   string domain_prefix = 7;
+  // The reservation the owner chose; zero or absent takes the default.
+  int64 memory_reservation_mb = 8;
+  int64 cpu_reservation_millicores = 9;
 }
 
 message CreateContainerResponse {
@@ -292,18 +391,8 @@ message ContainerData {
   optional int32 last_exit_code = 13;
   int64 ttl_deadline = 14;
   string project_id = 15;
-}
-
-message ContainerRuntimeTargetRequest {
-  string container_id = 1;
-}
-
-message ContainerRuntimeTarget {
-  string container_id = 1;
-  string docker_id = 2;
-  string status = 3;
-  string owner_id = 4;
-  int32 docker_generation = 5;
+  int64 memory_reservation_bytes = 16;
+  int64 cpu_reservation_millicores = 17;
 }
 
 message ContainerListResponse {
@@ -317,6 +406,9 @@ message ImageActionRequest {
 }
 
 message StartBuildRecordResponse {
+ string registry_username = 4;
+ string registry_password = 5;
+ string registry_destination = 6;
   bool started = 1;
   string status = 2;
   string image_id = 3;
@@ -336,14 +428,23 @@ message CompleteBuildRequest {
 message ImageData {
   string id = 1;
   string tag = 2;
-  int32 size_mb = 3;
-  reserved 4;
-  reserved "is_custom";
+  reserved 3, 4;
+  reserved "size_mb", "is_custom";
   int64 created_at = 5;
   string owner_id = 6;
   string owner_username = 7;
   string status = 8;
   string last_error = 9;
+  int64 size_bytes = 10;
+  // The containers created from the image, by name. Core refuses to delete
+  // an image while any container uses it.
+  repeated ContainerRef used_by = 11;
+}
+
+// ContainerRef names a container: one that uses an image or mounts a volume.
+message ContainerRef {
+  string container_id = 1;
+  string name = 2;
 }
 
 message ImageListResponse {
@@ -356,6 +457,8 @@ message CreateVolumeRequest {
   string name = 2;
   reserved 3, 4;
   reserved "driver", "driver_opts";
+  // Zero asks for the default volume size.
+  int64 size_bytes = 5;
 }
 
 message CreateVolumeResponse {
@@ -380,6 +483,13 @@ message VolumeData {
   string last_error = 8;
   int64 used_bytes = 9;
   int64 usage_observed_at = 10;
+  int64 size_bytes = 11;
+  // Whether the kernel enforces size_bytes; otherwise it is checked
+  // periodically.
+  bool size_enforced = 12;
+  // The containers that mount the volume, by name. Core refuses to delete a
+  // volume while any container mounts it.
+  repeated ContainerRef used_by = 13;
 }
 
 message VolumeListResponse {
@@ -398,11 +508,21 @@ message BuildData {
   string status = 3;
   int64 started_at = 4;
   int64 finished_at = 5;
-  string log_file_path = 6;
+  string log_object_key = 6;
   string owner_id = 7;
   string owner_username = 8;
   string project_id = 9;
   string project_service_name = 10;
+  int64 created_at = 11;
+  // The user tag the build was queued for. image_id is empty once the
+  // build's image record has been deleted.
+  string tag = 12;
+  // Where the build's context came from: "archive" (source_location is the
+  // file name) or "git" (the repository URL, and source_ref the ref asked
+  // for). Empty for a Compose project's build.
+  string source_kind = 13;
+  string source_location = 14;
+  string source_ref = 15;
 }
 
 message BuildListResponse {
@@ -436,9 +556,32 @@ message PaginationRequest {
   string project_id = 3;
 }
 
+// ListContainersRequest reads a page of the containers list. Empty status,
+// sort and order mean all, status (failing first) and asc; query is a
+// literal, case-insensitive substring of the name or image tag.
+message ListContainersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string project_id = 3;
+  string status = 4;
+  string sort = 5;
+  string order = 6;
+  string query = 7;
+}
+
+// ContainerStatusCounts is how many containers each status filter shows,
+// under the owner, the project and the query but not the status filter.
+message ContainerStatusCounts {
+  int32 all = 1;
+  int32 running = 2;
+  int32 stopped = 3;
+  int32 attention = 4;
+}
+
 message PaginatedContainerResponse {
   repeated ContainerData containers = 1;
   int32 total_count = 2;
+  ContainerStatusCounts status_counts = 3;
 }
 
 message PaginatedVolumeResponse {
@@ -462,88 +605,82 @@ message PaginatedProjectResponse {
 }
 
 message SystemConfigData {
-  reserved 15, 16, 20, 21, 27;
-  reserved "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
+  // Fields of settings that are no longer runtime settings stay reserved.
+  reserved
+    1, 6, 7, 8, 11, 15, 16, 19, 20, 21, 23, 24, 25, 26, 27, 28, 31, 35, 36, 37, 38, 39, 40, 41, 44,
+    45, 47, 49, 50, 51, 55, 56, 57, 59, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 77, 83, 85, 86, 87,
+    88, 89, 91, 100;
+  reserved
+    "high_load_cpu_shares", "high_load_container_count", "registry_api_url", "registry_public_url",
+    "proxy_network_name", "registry_container_name", "build_network_name", "base_domain",
+    "default_cpu_shares", "max_log_files", "container_memory_swap_multiplier", "build_cpu_quota",
+    "build_cpu_period", "build_memory_swap_multiplier", "build_pids_limit", "kaniko_image",
+    "max_upload_size_bytes", "ttl_worker_interval_seconds", "gc_worker_interval_minutes",
+    "stale_build_timeout_minutes", "event_sync_interval_seconds", "event_reconnect_delay_seconds",
+    "build_outbox_interval_seconds", "build_outbox_batch_size", "compose_deploy_worker_count",
+    "compose_build_poll_interval_seconds", "telemetry_max_log_tail_lines",
+    "telemetry_max_log_streams_per_user", "telemetry_max_terminal_sessions_per_user",
+    "telemetry_max_command_args", "telemetry_max_command_arg_bytes", "telemetry_ws_read_limit_bytes",
+    "build_cancel_poll_interval_seconds", "compose_outbox_interval_seconds",
+    "compose_outbox_batch_size", "compose_deploy_max_attempts",
+    "reports_usage_snapshot_interval_seconds", "container_create_worker_count",
+    "container_create_max_attempts", "container_create_timeout_minutes",
+    "max_queued_container_creates_per_user", "container_create_outbox_interval_seconds",
+    "container_create_outbox_batch_size", "compose_coordinator_interval_seconds",
+    "container_cpu_period", "volume_usage_interval_seconds", "volume_usage_cycle_budget_seconds",
+    "volume_usage_scan_entry_budget", "registry_cleanup_interval_seconds",
+    "registry_cleanup_job_timeout_seconds", "memory_pressure_interval_seconds",
+    "registry_gc_max_duration_seconds";
 
-  string base_domain = 1;
   int64 default_memory_reservation_bytes = 2;
   int64 reserved_system_memory_bytes = 3;
   double overcommit_factor = 4;
   int64 max_burst_multiplier = 5;
-  int64 default_cpu_shares = 6;
-  int64 high_load_cpu_shares = 7;
-  int32 high_load_container_count = 8;
   int32 container_stop_timeout = 9;
   string max_log_size = 10;
-  string max_log_files = 11;
   string container_disk_quota = 12;
   int32 max_volumes_per_user = 13;
   int32 max_containers_per_user = 14;
   int64 container_ttl_hours = 17;
   int64 container_pids_limit = 18;
-  double container_memory_swap_multiplier = 19;
   int64 build_memory_bytes = 22;
-  int64 build_cpu_quota = 23;
-  int64 build_cpu_period = 24;
-  double build_memory_swap_multiplier = 25;
-  int64 build_pids_limit = 26;
-  string kaniko_image = 28;
   int64 max_build_time_minutes = 29;
   int32 max_concurrent_builds = 30;
-  int64 max_upload_size_bytes = 31;
   int64 max_archive_size_bytes = 32;
   int64 max_unpacked_size_bytes = 33;
   int64 max_build_log_size_bytes = 34;
-  int64 ttl_worker_interval_seconds = 35;
-  int64 gc_worker_interval_minutes = 36;
-  int64 stale_build_timeout_minutes = 37;
-  int64 event_sync_interval_seconds = 38;
-  int64 event_reconnect_delay_seconds = 39;
-  int64 build_outbox_interval_seconds = 40;
-  int32 build_outbox_batch_size = 41;
   int64 compose_upload_max_bytes = 42;
   int64 compose_pipeline_timeout_minutes = 43;
-  int32 compose_deploy_worker_count = 44;
-  int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
-  int64 compose_dependency_poll_interval_seconds = 47;
   repeated string reserved_domain_prefixes = 48;
-  int32 telemetry_max_log_tail_lines = 49;
-  int32 telemetry_max_log_streams_per_user = 50;
-  int32 telemetry_max_terminal_sessions_per_user = 51;
   int64 telemetry_terminal_idle_timeout_seconds = 52;
   int64 telemetry_terminal_max_duration_seconds = 53;
   repeated string telemetry_allowed_exec_commands = 54;
-  int32 telemetry_max_command_args = 55;
-  int32 telemetry_max_command_arg_bytes = 56;
-  int64 telemetry_ws_read_limit_bytes = 57;
   bool image_builds_enabled = 58;
-  int64 build_cancel_poll_interval_seconds = 59;
   bool git_sources_enabled = 60;
   repeated string git_allowed_hosts = 61;
   int64 git_clone_timeout_seconds = 62;
   int64 git_max_repository_bytes = 63;
-  int64 compose_outbox_interval_seconds = 64;
-  int32 compose_outbox_batch_size = 65;
-  int32 compose_deploy_max_attempts = 66;
-  int64 reports_usage_snapshot_interval_seconds = 67;
-  int32 container_create_worker_count = 68;
-  int32 container_create_max_attempts = 69;
-  int64 container_create_timeout_minutes = 70;
-  int32 max_queued_container_creates_per_user = 71;
-  int64 container_create_outbox_interval_seconds = 72;
-  int32 container_create_outbox_batch_size = 73;
   int64 max_staged_source_bytes_per_user = 74;
   int32 max_queued_builds_per_user = 75;
   int32 max_queued_compose_deploys_per_user = 76;
-  int64 compose_coordinator_interval_seconds = 77;
   int64 host_min_free_disk_bytes = 78;
   int64 default_cpu_reservation_millicores = 79;
   int64 reserved_system_cpu_millicores = 80;
   double cpu_overcommit_factor = 81;
   int64 max_cpu_burst_multiplier = 82;
-  int64 container_cpu_period = 83;
   repeated string blocked_domain_prefix_patterns = 84;
+  int64 memory_pressure_min_free_bytes = 90;
+  int64 memory_boost_multiplier = 92;
+  int64 cpu_boost_multiplier = 93;
+  int64 boost_min_free_memory_bytes = 94;
+  int64 default_volume_size_bytes = 95;
+  bool volume_size_enforcement = 96;
+  double default_user_quota_cpu = 97;
+  int64 default_user_quota_ram_mb = 98;
+  int64 default_user_quota_disk_mb = 99;
+  int64 build_max_disk_bytes = 101;
+  int64 build_cpu_millicores = 102;
 }
 
 message BuilderRuntimeConfigData {
@@ -559,18 +696,7 @@ message BuilderRuntimeConfigData {
   int64 max_unpacked_size_bytes = 10;
   int64 max_build_log_size_bytes = 11;
   int64 build_cancel_poll_interval_seconds = 12;
-}
-
-message TelemetryRuntimeConfigData {
-  int32 telemetry_max_log_tail_lines = 1;
-  int32 telemetry_max_log_streams_per_user = 2;
-  int32 telemetry_max_terminal_sessions_per_user = 3;
-  int64 telemetry_terminal_idle_timeout_seconds = 4;
-  int64 telemetry_terminal_max_duration_seconds = 5;
-  repeated string telemetry_allowed_exec_commands = 6;
-  int32 telemetry_max_command_args = 7;
-  int32 telemetry_max_command_arg_bytes = 8;
-  int64 telemetry_ws_read_limit_bytes = 9;
+  int64 build_max_disk_bytes = 13;
 }
 
 message ContainerStatsResponse {
@@ -579,4 +705,6 @@ message ContainerStatsResponse {
   int64 memory_limit_bytes = 3;
   int64 network_rx_bytes = 4;
   int64 network_tx_bytes = 5;
+  // The limit create and start apply; memory_limit_bytes above it is borrowed.
+  int64 memory_standard_limit_bytes = 6;
 }

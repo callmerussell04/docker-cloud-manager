@@ -2,10 +2,12 @@ package grpc
 
 import (
 	"context"
+	"math"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,31 +41,31 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
-	accessToken, refreshToken, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
+	signIn, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.LoginResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:      signIn.Tokens.AccessToken,
+		RefreshExpiresAt: signIn.Tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     signIn.Tokens.RefreshToken,
+		User:             signedInUserToProto(signIn.User),
 	}, nil
 }
 
 func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.RefreshResponse, error) {
 	refreshDTO := dto.RefreshRequest{RefreshToken: req.GetRefreshToken()}
-	if refreshDTO.RefreshToken == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing refresh token")
-	}
 
-	accessToken, refreshToken, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
+	tokens, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.RefreshResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:      tokens.AccessToken,
+		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     tokens.RefreshToken,
 	}, nil
 }
 
@@ -77,7 +79,7 @@ func (h *Handler) GetAuthConfig(ctx context.Context, _ *sso.GetAuthConfigRequest
 		OidcProviders:        make([]*sso.OIDCProviderData, 0, len(providers)),
 	}
 	for _, provider := range providers {
-		resp.OidcProviders = append(resp.OidcProviders, &sso.OIDCProviderData{Name: provider})
+		resp.OidcProviders = append(resp.OidcProviders, &sso.OIDCProviderData{Name: provider.Name, Available: provider.Available})
 	}
 	return resp, nil
 }
@@ -88,11 +90,16 @@ func (h *Handler) StartOIDCLogin(ctx context.Context, req *sso.StartOIDCLoginReq
 		return nil, status.Error(codes.InvalidArgument, "missing provider")
 	}
 
-	authURL, stateBinding, err := h.auth.StartOIDCLogin(ctx, provider, req.GetRedirectAfter())
+	started, err := h.auth.StartOIDCLogin(ctx, provider, req.GetRedirectAfter())
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &sso.StartOIDCLoginResponse{AuthUrl: authURL, StateBinding: stateBinding}, nil
+	return &sso.StartOIDCLoginResponse{
+		AuthUrl:      started.AuthURL,
+		StateBinding: started.StateBinding,
+		State:        started.State,
+		ExpiresAt:    started.ExpiresAt.Unix(),
+	}, nil
 }
 
 func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOIDCCallbackRequest) (*sso.CompleteOIDCCallbackResponse, error) {
@@ -100,15 +107,42 @@ func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOID
 		return nil, status.Error(codes.InvalidArgument, "missing provider, code, state or state binding")
 	}
 
-	accessToken, refreshToken, redirectAfter, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
+	result, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &sso.CompleteOIDCCallbackResponse{
-		AccessToken:   accessToken,
-		RefreshToken:  refreshToken,
-		RedirectAfter: redirectAfter,
-	}, nil
+	resp := &sso.CompleteOIDCCallbackResponse{
+		Outcome:       callbackOutcomeToProto(result.Outcome),
+		RedirectAfter: result.RedirectAfter,
+	}
+	if result.Outcome == model.OIDCCallbackSuccess {
+		resp.AccessToken = result.Tokens.AccessToken
+		resp.RefreshToken = result.Tokens.RefreshToken
+		resp.RefreshExpiresAt = result.Tokens.RefreshExpiresAt.Unix()
+		resp.User = signedInUserToProto(result.User)
+	}
+	return resp, nil
+}
+
+func signedInUserToProto(user model.SignedInUser) *sso.SignedInUser {
+	return &sso.SignedInUser{Id: user.ID.String(), Username: user.Username, Role: user.Role}
+}
+
+func callbackOutcomeToProto(outcome model.OIDCCallbackOutcome) sso.OIDCCallbackOutcome {
+	switch outcome {
+	case model.OIDCCallbackSuccess:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS
+	case model.OIDCCallbackInvalidAttempt:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT
+	case model.OIDCCallbackIdentityRejected:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED
+	case model.OIDCCallbackAccountDeactivated:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED
+	case model.OIDCCallbackAccountConflict:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT
+	default:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_UNSPECIFIED
+	}
 }
 
 func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenRequest) (*sso.UserData, error) {
@@ -122,7 +156,7 @@ func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenReq
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionRequest) (*sso.CheckPermissionResponse, error) {
@@ -141,6 +175,27 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 
 	return &sso.CheckPermissionResponse{
 		Allowed: allowed,
-		User:    userToProto(user),
+		User:    h.userToProto(user),
 	}, nil
+}
+
+func (h *Handler) Logout(ctx context.Context, req *sso.LogoutRequest) (*sso.LogoutResponse, error) {
+	providerLogoutURL, err := h.auth.Logout(ctx, req.GetRefreshToken(), req.GetPostLogoutRedirectUri())
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &sso.LogoutResponse{ProviderLogoutUrl: providerLogoutURL}, nil
+}
+
+// BackchannelLogout passes an empty token to the service, which answers not
+// found with OIDC off before it judges the token.
+func (h *Handler) BackchannelLogout(ctx context.Context, req *sso.BackchannelLogoutRequest) (*sso.BackchannelLogoutResponse, error) {
+	if req.GetProvider() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing provider")
+	}
+	revoked, err := h.auth.BackchannelLogout(ctx, req.GetProvider(), req.GetLogoutToken())
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &sso.BackchannelLogoutResponse{RevokedSessions: int32(min(revoked, math.MaxInt32))}, nil
 }

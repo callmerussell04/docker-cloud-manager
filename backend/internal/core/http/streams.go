@@ -1,0 +1,450 @@
+package http
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
+
+// StreamUseCases opens container log streams and terminal sessions.
+type StreamUseCases interface {
+	StreamLogs(ctx context.Context, containerID uuid.UUID, opts model.LogOptions) (io.ReadCloser, error)
+	OpenTerminal(ctx context.Context, containerID uuid.UUID, opts model.TerminalOptions) (model.TerminalSession, model.StreamConfig, error)
+}
+
+// StreamHandler serves container log streams (SSE) and terminal sessions
+// (WebSocket). Shutdown ends every open stream and session.
+type StreamHandler struct {
+	service  StreamUseCases
+	upgrader websocket.Upgrader
+	logger   *slog.Logger
+	// stopped is cancelled by Shutdown; every stream's context derives from it.
+	stopped context.Context
+	stop    context.CancelFunc
+}
+
+func NewStreamHandler(service StreamUseCases, logger *slog.Logger) *StreamHandler {
+	stopped, stop := context.WithCancel(context.Background())
+	return &StreamHandler{
+		service: service,
+		upgrader: websocket.Upgrader{
+			// Gateway checks the Origin before it proxies; Core is internal only.
+			CheckOrigin: func(_ *http.Request) bool { return true },
+		},
+		logger:  logging.WithComponent(logger, "container_streams_http"),
+		stopped: stopped,
+		stop:    stop,
+	}
+}
+
+// Shutdown ends every open log stream and terminal session; one opened later
+// ends at once. http.Server.Shutdown neither
+// cancels an open request nor tracks a hijacked WebSocket connection, so the
+// server calls this through RegisterOnShutdown.
+func (h *StreamHandler) Shutdown() {
+	h.stop()
+}
+
+// streamContext is the request context, also cancelled by Shutdown.
+func (h *StreamHandler) streamContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	stopAfter := context.AfterFunc(h.stopped, cancel)
+	return ctx, func() {
+		stopAfter()
+		cancel()
+	}
+}
+
+func (h *StreamHandler) StreamLogs(c *gin.Context) {
+	containerID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	opts, ok := logOptions(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := h.streamContext(c)
+	defer cancel()
+	stream, err := h.service.StreamLogs(ctx, containerID, opts)
+	if err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
+		return
+	}
+	defer func() { _ = stream.Close() }() // read-only stream; close failure is not actionable
+
+	w := c.Writer
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpresponse.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	h.writeLogEvents(ctx, w, flusher, stream)
+}
+
+func (h *StreamHandler) OpenTerminal(c *gin.Context) {
+	containerID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	opts, ok := terminalOptions(c)
+	if !ok {
+		return
+	}
+
+	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }() // WebSocket teardown; the peer may already have closed
+
+	ctx, cancel := h.streamContext(c)
+	defer cancel()
+	session, cfg, err := h.service.OpenTerminal(ctx, containerID, opts)
+	if err != nil {
+		_ = conn.WriteJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)}) // best-effort error frame before closing; the peer may be gone
+		return
+	}
+	defer func() { _ = session.Close() }() // exec session teardown; close failure is not actionable
+
+	sessionID := uuid.NewString()
+	started := time.Now()
+	reason := h.bridgeTerminal(ctx, conn, session, cfg)
+	h.logger.InfoContext(ctx, "terminal session closed", streams.SessionLogAttrs(ctx, containerID.String(), sessionID, started, reason)...)
+}
+
+func (h *StreamHandler) writeLogEvents(ctx context.Context, w gin.ResponseWriter, flusher http.Flusher, stream io.Reader) {
+	lines := make(chan string)
+	errCh := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(stream)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
+		}
+		errCh <- scanner.Err()
+	}()
+
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			_, _ = io.WriteString(w, ": heartbeat\n\n") // a departed client ends the request context, which stops the stream
+			flusher.Flush()
+		case line, ok := <-lines:
+			if !ok {
+				if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
+					writeSSE(w, "error", apperrors.SafeMessage(apperrors.ErrInternal))
+				}
+				writeSSE(w, "end", "")
+				flusher.Flush()
+				return
+			}
+			writeSSE(w, "log", line)
+			flusher.Flush()
+		}
+	}
+}
+
+func (h *StreamHandler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.StreamConfig) string {
+	if cfg.WSReadLimitBytes > 0 {
+		conn.SetReadLimit(cfg.WSReadLimitBytes)
+	}
+
+	sessionCtx, cancel := context.WithTimeout(ctx, cfg.TerminalMaxDuration)
+	defer cancel()
+
+	var writeMu sync.Mutex
+	writeJSON := func(event wsEvent) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.WriteJSON(event) // control frames are best effort; a broken connection ends the input reader
+	}
+	writeBinary := func(data []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteMessage(websocket.BinaryMessage, data)
+	}
+
+	writeJSON(wsEvent{Type: "ready"})
+	inputDone := make(chan string, 1)
+	outputDone := make(chan string, 1)
+
+	go func() {
+		inputDone <- readTerminalInput(sessionCtx, conn, session, cfg, writeJSON)
+	}()
+	go func() {
+		outputDone <- writeTerminalOutput(sessionCtx, session, writeBinary)
+	}()
+
+	select {
+	case reason := <-inputDone:
+		cancel()
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
+		h.waitTerminalBridge(outputDone)
+		return reason
+	case reason := <-outputDone:
+		state, err := session.Inspect(context.Background())
+		if err == nil && !state.Running {
+			writeJSON(wsEvent{Type: "exit", ExitCode: &state.ExitCode})
+		}
+		cancel()
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
+		h.waitTerminalBridge(inputDone)
+		return reason
+	case <-sessionCtx.Done():
+		if errors.Is(sessionCtx.Err(), context.DeadlineExceeded) {
+			writeJSON(wsEvent{Type: "error", Error: "terminal session timed out"})
+			_ = session.Close() // teardown; the bridge outcome is already decided
+			_ = conn.Close()    // teardown; the peer may already have closed
+			h.waitTerminalBridge(inputDone, outputDone)
+			return "timeout"
+		}
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
+		h.waitTerminalBridge(inputDone, outputDone)
+		return "context_cancelled"
+	}
+}
+
+func (h *StreamHandler) waitTerminalBridge(doneChans ...<-chan string) {
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for _, done := range doneChans {
+		select {
+		case <-done:
+		case <-timer.C:
+			return
+		}
+	}
+}
+
+func readTerminalInput(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.StreamConfig, writeJSON func(wsEvent)) string {
+	idle := cfg.TerminalIdleTimeout
+	if idle <= 0 {
+		idle = 5 * time.Minute
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(idle)) // fails only on a broken connection, which the next read reports
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(idle))
+	})
+
+	for {
+		messageType, payload, err := conn.ReadMessage()
+		if err != nil {
+			return "client_disconnect"
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(idle)) // fails only on a broken connection, which the next read reports
+		select {
+		case <-ctx.Done():
+			return "context_cancelled"
+		default:
+		}
+
+		switch messageType {
+		case websocket.BinaryMessage:
+			if _, err := session.Write(payload); err != nil {
+				return "stdin_error"
+			}
+		case websocket.TextMessage:
+			reason, done := handleTerminalControl(ctx, session, payload, writeJSON)
+			if done {
+				return reason
+			}
+		case websocket.CloseMessage:
+			return "client_close"
+		}
+	}
+}
+
+func writeTerminalOutput(ctx context.Context, session model.TerminalSession, writeBinary func([]byte) error) string {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := session.Read(buf)
+		if n > 0 {
+			if writeErr := writeBinary(buf[:n]); writeErr != nil {
+				return "client_disconnect"
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return "process_exit"
+			}
+			select {
+			case <-ctx.Done():
+				return "context_cancelled"
+			default:
+				return "stream_error"
+			}
+		}
+	}
+}
+
+func handleTerminalControl(ctx context.Context, session model.TerminalSession, payload []byte, writeJSON func(wsEvent)) (string, bool) {
+	var msg terminalControl
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		writeJSON(wsEvent{Type: "error", Error: "invalid terminal control message"})
+		return "", false
+	}
+	switch msg.Type {
+	case "resize":
+		if msg.Rows == 0 || msg.Cols == 0 {
+			writeJSON(wsEvent{Type: "error", Error: "invalid terminal size"})
+			return "", false
+		}
+		if err := session.Resize(ctx, msg.Rows, msg.Cols); err != nil {
+			writeJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)})
+		}
+		return "", false
+	case "close":
+		_ = session.CloseWrite() // half-close on client request; session failures surface when output ends
+		return "client_close", true
+	default:
+		writeJSON(wsEvent{Type: "error", Error: "unknown terminal control message"})
+		return "", false
+	}
+}
+
+// writeSSE writes one event. Write errors are ignored: a departed client ends
+// the request context, which stops the stream.
+func writeSSE(w io.Writer, event, data string) {
+	_, _ = fmt.Fprintf(w, "event: %s\n", event) // see writeSSE
+	if data != "" {
+		data = strings.ReplaceAll(data, "\r\n", "\n")
+		data = strings.ReplaceAll(data, "\r", "\n")
+		for _, line := range strings.Split(data, "\n") {
+			_, _ = fmt.Fprintf(w, "data: %s\n", line) // see writeSSE
+		}
+	}
+	_, _ = io.WriteString(w, "\n") // see writeSSE
+}
+
+func logOptions(c *gin.Context) (model.LogOptions, bool) {
+	opts := model.LogOptions{
+		Tail:       200,
+		Follow:     true,
+		Timestamps: true,
+	}
+	if raw := c.Query("tail"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value <= 0 {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return model.LogOptions{}, false
+		}
+		opts.Tail = value
+	}
+	if raw := c.Query("follow"); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return model.LogOptions{}, false
+		}
+		opts.Follow = value
+	}
+	if raw := c.Query("timestamps"); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return model.LogOptions{}, false
+		}
+		opts.Timestamps = value
+	}
+	if raw := c.Query("since"); raw != "" {
+		since, err := parseSince(raw)
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return model.LogOptions{}, false
+		}
+		opts.Since = since
+	}
+	return opts, true
+}
+
+func parseSince(raw string) (time.Time, error) {
+	if unix, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return time.Unix(unix, 0), nil
+	}
+	return time.Parse(time.RFC3339, raw)
+}
+
+func terminalOptions(c *gin.Context) (model.TerminalOptions, bool) {
+	opts := model.TerminalOptions{
+		Rows: 24,
+		Cols: 80,
+	}
+	cmd := c.Query("cmd")
+	args := c.QueryArray("arg")
+	if cmd == "" && len(args) > 0 {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return model.TerminalOptions{}, false
+	}
+	if cmd != "" {
+		opts.Command = append([]string{cmd}, args...)
+	}
+	if raw := c.Query("rows"); raw != "" {
+		value, err := streams.ParseSize(raw)
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, err)
+			return model.TerminalOptions{}, false
+		}
+		opts.Rows = value
+	}
+	if raw := c.Query("cols"); raw != "" {
+		value, err := streams.ParseSize(raw)
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, err)
+			return model.TerminalOptions{}, false
+		}
+		opts.Cols = value
+	}
+	return opts, true
+}
+
+type terminalControl struct {
+	Type string `json:"type"`
+	Rows uint   `json:"rows"`
+	Cols uint   `json:"cols"`
+}
+
+type wsEvent struct {
+	Type     string `json:"type"`
+	Error    string `json:"error,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+}

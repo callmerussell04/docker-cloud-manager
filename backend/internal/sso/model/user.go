@@ -28,14 +28,18 @@ type User struct {
 	PasswordHash     string
 	Role             string
 	Status           string
-	QuotaCPU         float64
-	QuotaRAMMB       int64
-	QuotaDiskMB      int64
 	AuthSource       string
 	ExternalProvider string
 	ExternalSubject  string
 	ExternalUsername string
 	LastLoginAt      *time.Time
+}
+
+// AuthProvider is an enabled external sign-in provider. Available reports
+// whether SSO has reached it; until then sign-in through it is unavailable.
+type AuthProvider struct {
+	Name      string
+	Available bool
 }
 
 type ListUsersOptions struct {

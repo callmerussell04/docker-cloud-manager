@@ -1,5 +1,7 @@
 package model
 
+import "github.com/google/uuid"
+
 type ContainerMountSpec struct {
 	VolumeName string
 	Target     string
@@ -39,8 +41,13 @@ type ContainerRuntimeSpec struct {
 type VolumeRuntimeSpec struct {
 	VolumeName string
 	VolumeID   string
-	OwnerID    string
-	ProjectID  string
+	// Name is the user-facing volume name, recorded as a Docker label.
+	Name      string
+	OwnerID   string
+	ProjectID string
+	// SizeBytes, when positive, is given to Docker's local volume driver so
+	// the kernel refuses writes past it. Zero creates an unsized volume.
+	SizeBytes int64
 }
 
 type VolumeInspection struct {
@@ -73,6 +80,25 @@ type ContainerResourceUpdate struct {
 	CPUShares            int64
 	CPUQuota             int64
 	CPUPeriod            int64
+}
+
+// ContainerUsage is one stats sample of a running container.
+type ContainerUsage struct {
+	// WorkingSetBytes is memory usage less inactive file cache.
+	WorkingSetBytes int64
+	// MemoryLimitBytes is the hard memory limit the container runs with now.
+	MemoryLimitBytes int64
+	// CPUUsageNanoseconds is the CPU time the container has used since it
+	// started.
+	CPUUsageNanoseconds int64
+}
+
+// BuildContainer is a running Kaniko container, identified by the labels
+// Builder gives it.
+type BuildContainer struct {
+	DockerID string
+	BuildID  uuid.UUID
+	OwnerID  uuid.UUID
 }
 
 type ContainerState struct {

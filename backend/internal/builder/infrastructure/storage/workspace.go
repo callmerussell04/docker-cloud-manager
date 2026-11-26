@@ -1,10 +1,11 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildobjects"
 )
 
 type WorkspaceManager struct {
@@ -27,5 +28,12 @@ func (m *WorkspaceManager) Create(buildID string) (string, func(), error) {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return "", func() {}, err
 	}
-	return path, func() { _ = os.RemoveAll(path) }, nil
+	return path, func() { _ = os.RemoveAll(path) }, nil // best-effort workspace removal; CleanUp reports failures for the build
+}
+
+func (m *WorkspaceManager) CleanUp(ctx context.Context, buildID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(m.baseDir, buildID+"_workspace"))
 }

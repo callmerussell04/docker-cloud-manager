@@ -32,18 +32,76 @@ type SystemMonitoring struct {
 	DiskFreeBytes               int64
 	DCMReservedMemoryBytes      int64
 	DCMReservedBuildMemoryBytes int64
-	DCMDiskUsedBytes            int64
+	// DCMReservedCPUMillicores is the CPU reserved by every container that
+	// reserves capacity; DCMReservedBuildCPUMillicores is the CPU the occupied build
+	// slots hold. Both are in millicores.
+	DCMReservedCPUMillicores      int64
+	DCMReservedBuildCPUMillicores int64
+	// DCMBorrowedMemoryBytes is the memory running workloads borrow above
+	// their standard limits.
+	DCMBorrowedMemoryBytes int64
+	DCMDiskUsedBytes       int64
+	// DCMReservedVolumeBytes is the sum of the sizes of all volumes not
+	// being deleted: the disk promised to volumes.
+	DCMReservedVolumeBytes int64
+	// DCMUnusedVolumePromiseBytes is, over the same volumes, each size less
+	// its measured usage, never below zero: the disk promised to volumes and
+	// not used yet, which volume creates count against the disk floor.
+	DCMUnusedVolumePromiseBytes int64
 	HostMinFreeDiskBytes        int64
-	AdmissionStatus             string
-	AdmissionReasons            []string
-	ContainersTotal             int
-	ContainersRunning           int
-	ContainersStopped           int
-	ContainersError             int
-	ContainersMissing           int
-	VolumesTotal                int
-	ImagesTotal                 int
-	BuildsTotal                 int
-	ProjectsTotal               int
-	ObservedAt                  time.Time
+	// BuildClaimCap is the cap the next build claim would get:
+	// MaxConcurrentBuilds, or fewer when the free disk above the floor cannot
+	// hold that many build slots.
+	BuildClaimCap       int
+	MaxConcurrentBuilds int
+	// BuildsActive is the builds pending or running, queued ones included.
+	BuildsActive int
+	// CPUTotalMillicores is the host's logical CPUs in millicores.
+	CPUTotalMillicores int64
+	AdmissionStatus    string
+	AdmissionReasons   []string
+	RootfsQuotaStatus  RootfsQuotaStatus
+	VolumeSizeMode     VolumeSizeMode
+	ContainersTotal    int
+	ContainersRunning  int
+	ContainersStopped  int
+	ContainersError    int
+	ContainersMissing  int
+	VolumesTotal       int
+	ImagesTotal        int
+	BuildsTotal        int
+	ProjectsTotal      int
+	ObservedAt         time.Time
 }
+
+// RootfsQuotaStatus says whether Docker enforces the container root
+// filesystem cap (the size storage option) on this host.
+type RootfsQuotaStatus string
+
+const (
+	RootfsQuotaEnforced    RootfsQuotaStatus = "enforced"
+	RootfsQuotaNotEnforced RootfsQuotaStatus = "not_enforced"
+	RootfsQuotaUnknown     RootfsQuotaStatus = "unknown"
+)
+
+// DockerHost is what Core reads from the Docker daemon once at startup.
+type DockerHost struct {
+	RootfsQuota RootfsQuotaStatus
+	// RootDir is the daemon's data directory on the host. Empty when unread.
+	RootDir string
+}
+
+// VolumeSizeMode says how volume sizes are enforced for new volumes.
+type VolumeSizeMode string
+
+const (
+	// VolumeSizeMeasured: enforcement is off; the volume usage worker stops
+	// writers of a volume measured above its size.
+	VolumeSizeMeasured VolumeSizeMode = "measured"
+	// VolumeSizeEnforced: enforcement is on and the host supports it; new
+	// volumes get a kernel-enforced size.
+	VolumeSizeEnforced VolumeSizeMode = "enforced"
+	// VolumeSizeUnavailable: enforcement is on but the host check failed at
+	// startup; new volumes are created measured.
+	VolumeSizeUnavailable VolumeSizeMode = "unavailable"
+)

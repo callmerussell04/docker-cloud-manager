@@ -1,0 +1,28 @@
+import type { dashboard as ru } from '../ru/dashboard';
+
+export const dashboard: Record<keyof typeof ru, string> = {
+  'dashboard.title': 'Dashboard',
+  'dashboard.loadFailed': 'Could not load the dashboard',
+  'dashboard.new': 'New',
+  'dashboard.new.buildImage': 'Build an image',
+  'dashboard.new.createVolume': 'Create a volume',
+  'dashboard.memory.map': 'Memory map',
+  'dashboard.memory.reserved': '{used} of {quota} memory reserved',
+  'dashboard.memory.free': '{free} free for new containers',
+  'dashboard.memory.other': 'Other containers',
+  'dashboard.memory.freeLegend': 'Free',
+  'dashboard.memory.block': '{name}: {amount}',
+  'dashboard.memory.freeBlock': '{amount} free',
+  'dashboard.memory.otherBlock': 'Other containers: {amount}',
+  'dashboard.attention.label': 'Containers that need you',
+  'dashboard.attention.failing': 'Needs attention',
+  'dashboard.attention.changing': 'Starting or stopping',
+  'dashboard.attention.none': 'All is well',
+  'dashboard.attention.noneHint': 'Failing containers and those starting or stopping show up here.',
+  'dashboard.quota.of': '{used} of {total}',
+  'dashboard.quota.disk': 'Disk',
+  'dashboard.quota.containers': 'Containers · {running} running',
+  'dashboard.quota.volumes': 'Volumes',
+  'dashboard.images': 'Images: {count}',
+  'dashboard.projects': 'Compose projects: {count}',
+};

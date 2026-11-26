@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 

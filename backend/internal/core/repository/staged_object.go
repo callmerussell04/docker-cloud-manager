@@ -2,65 +2,45 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type StagedObjectRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewStagedObjectRepository(db *sql.DB) *StagedObjectRepository {
+func NewStagedObjectRepository(db *pgxpool.Pool) *StagedObjectRepository {
 	return &StagedObjectRepository{db: db}
 }
 
-func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "dcm:staged:"+reservation.OwnerID.String()); err != nil {
-		return err
-	}
-
-	if maxBytesPerUser > 0 {
-		var used int64
-		if err := tx.QueryRowContext(ctx, `
-			SELECT COALESCE(SUM(bytes_reserved), 0)
-			FROM staged_object_reservations
-			WHERE owner_id = $1 AND status = $2
-		`, reservation.OwnerID, model.StagedObjectStatusActive).Scan(&used); err != nil {
-			return err
-		}
-		if used+reservation.BytesReserved > maxBytesPerUser {
-			return apperrors.New(apperrors.ErrQuotaExceeded, "staged source quota exceeded")
-		}
-	}
-
+// Reserve inserts an active staged-object reservation. It checks no limit and
+// takes no lock: the staged-source module checks the disk quota and the staged
+// bytes cap under the owner capacity lock before calling it. A reservation
+// already recorded for the object key is kept.
+func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.StagedObjectReservation) error {
 	status := reservation.Status
 	if status == "" {
 		status = model.StagedObjectStatusActive
 	}
-	if _, err := tx.ExecContext(ctx, `
+	if _, err := r.db.Exec(ctx, `
 		INSERT INTO staged_object_reservations (id, owner_id, object_key, kind, bytes_reserved, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (object_key) DO NOTHING
 	`, reservation.ID, reservation.OwnerID, reservation.ObjectKey, reservation.Kind, reservation.BytesReserved, status); err != nil {
-		return err
+		return wrapOp("staged object reserve", err)
 	}
-
-	return tx.Commit()
+	return nil
 }
 
 func (r *StagedObjectRepository) UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error {
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.Exec(ctx, `
 		UPDATE staged_object_reservations
 		SET bytes_reserved = $1, updated_at = NOW()
 		WHERE object_key = $2 AND status = $3
@@ -68,10 +48,7 @@ func (r *StagedObjectRepository) UpdateBytes(ctx context.Context, objectKey stri
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -79,7 +56,7 @@ func (r *StagedObjectRepository) UpdateBytes(ctx context.Context, objectKey stri
 }
 
 func (r *StagedObjectRepository) Release(ctx context.Context, objectKey string) error {
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.Exec(ctx, `
 		UPDATE staged_object_reservations
 		SET status = $1, released_at = NOW(), updated_at = NOW()
 		WHERE object_key = $2 AND status = $3
@@ -87,10 +64,7 @@ func (r *StagedObjectRepository) Release(ctx context.Context, objectKey string) 
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -99,7 +73,7 @@ func (r *StagedObjectRepository) Release(ctx context.Context, objectKey string) 
 
 func (r *StagedObjectRepository) ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	var used int64
-	err := r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT COALESCE(SUM(bytes_reserved), 0)
 		FROM staged_object_reservations
 		WHERE owner_id = $1 AND status = $2
@@ -108,7 +82,7 @@ func (r *StagedObjectRepository) ActiveBytesByOwner(ctx context.Context, ownerID
 }
 
 func (r *StagedObjectRepository) ListStaleActive(ctx context.Context, cutoff time.Time, limit int) ([]model.StagedObjectReservation, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT id, owner_id, object_key, kind, bytes_reserved, status, created_at, updated_at, released_at
 		FROM staged_object_reservations
 		WHERE status = $1 AND updated_at < $2
@@ -154,7 +128,7 @@ func (r *StagedObjectRepository) ListStaleActive(ctx context.Context, cutoff tim
 
 func scanStagedObjectReservation(s scanner) (model.StagedObjectReservation, error) {
 	var reservation model.StagedObjectReservation
-	var releasedAt sql.NullTime
+	var releasedAt *time.Time
 	if err := s.Scan(
 		&reservation.ID,
 		&reservation.OwnerID,
@@ -166,13 +140,11 @@ func scanStagedObjectReservation(s scanner) (model.StagedObjectReservation, erro
 		&reservation.UpdatedAt,
 		&releasedAt,
 	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.StagedObjectReservation{}, apperrors.ErrNotFound
 		}
 		return model.StagedObjectReservation{}, err
 	}
-	if releasedAt.Valid {
-		reservation.ReleasedAt = &releasedAt.Time
-	}
+	reservation.ReleasedAt = releasedAt
 	return reservation, nil
 }

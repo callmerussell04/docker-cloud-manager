@@ -1,11 +1,11 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) DeleteProject(ctx context.Context, projectID string) error {
@@ -56,19 +56,31 @@ func (c *CoreClient) ListProjects(ctx context.Context, page, limit int) (model.P
 	}, nil
 }
 
+func (c *CoreClient) GetProject(ctx context.Context, projectID string) (model.Project, error) {
+	resp, err := c.projectAPI.GetProject(ctx, &coreapi.ProjectActionRequest{ProjectId: projectID})
+	if err != nil {
+		return model.Project{}, grpcerrors.FromGRPC(err)
+	}
+	return projectFromProto(resp), nil
+}
+
 func projectsFromProto(items []*coreapi.ProjectData) []model.Project {
 	result := make([]model.Project, 0, len(items))
 	for _, item := range items {
-		result = append(result, model.Project{
-			ID:            item.GetId(),
-			Name:          item.GetName(),
-			Status:        item.GetStatus(),
-			ErrorMessage:  item.GetErrorMessage(),
-			LastError:     item.GetLastError(),
-			CreatedAt:     item.GetCreatedAt(),
-			OwnerID:       item.GetOwnerId(),
-			OwnerUsername: item.GetOwnerUsername(),
-		})
+		result = append(result, projectFromProto(item))
 	}
 	return result
+}
+
+func projectFromProto(item *coreapi.ProjectData) model.Project {
+	return model.Project{
+		ID:            item.GetId(),
+		Name:          item.GetName(),
+		Status:        item.GetStatus(),
+		ErrorMessage:  item.GetErrorMessage(),
+		LastError:     item.GetLastError(),
+		CreatedAt:     item.GetCreatedAt(),
+		OwnerID:       item.GetOwnerId(),
+		OwnerUsername: item.GetOwnerUsername(),
+	}
 }

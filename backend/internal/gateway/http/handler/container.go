@@ -3,13 +3,16 @@ package handler
 import (
 	"context"
 	"net/http"
+	"slices"
+	"strings"
+	"unicode/utf8"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,7 +20,8 @@ type ContainerService interface {
 	CreateContainer(ctx context.Context, input model.CreateContainerInput) (string, error)
 	ActionContainer(ctx context.Context, containerID, action string) error
 	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
-	ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error)
+	ListContainers(ctx context.Context, params model.ContainerListParams) (model.PaginatedContainers, error)
+	GetContainer(ctx context.Context, containerID string) (model.Container, error)
 	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
@@ -64,26 +68,101 @@ func (h *CoreHandler) ListAdminContainers(c *gin.Context) {
 }
 
 func (h *CoreHandler) listContainers(c *gin.Context, mapItems func([]model.Container) any) {
-	page, limit, ok := getPaginationParams(c)
+	params, ok := containerListParams(c)
 	if !ok {
 		return
 	}
-	projectID := c.Query("project_id")
-	if projectID != "" {
-		if _, ok := validateUUIDValue(c, "project_id", projectID); !ok {
-			return
-		}
-	}
-	resp, err := h.service.ListContainers(c.Request.Context(), page, limit, projectID)
+	resp, err := h.service.ListContainers(c.Request.Context(), params)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
+	counts := resp.StatusCounts
 	c.JSON(http.StatusOK, gin.H{
 		"containers":  mapItems(resp.Containers),
 		"total_count": resp.TotalCount,
+		"status_counts": dto.ContainerStatusCountsDTO{
+			All:       counts.All,
+			Running:   counts.Running,
+			Stopped:   counts.Stopped,
+			Attention: counts.Attention,
+		},
 	})
+}
+
+// containerSearchMaxLength is the longest containers list search, in
+// characters, after trimming.
+const containerSearchMaxLength = 100
+
+// containerListParams reads the containers list's query: the page, the
+// project, and the status filter, sort, order and search, each left empty
+// when omitted. A value it does not know is a 400 that does not repeat it.
+func containerListParams(c *gin.Context) (model.ContainerListParams, bool) {
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return model.ContainerListParams{}, false
+	}
+	params := model.ContainerListParams{
+		Page:      page,
+		Limit:     limit,
+		ProjectID: c.Query("project_id"),
+		Status:    c.Query("status"),
+		Sort:      c.Query("sort"),
+		Order:     c.Query("order"),
+		Query:     strings.TrimSpace(c.Query("q")),
+	}
+	if params.ProjectID != "" {
+		if _, ok := validateUUIDValue(c, "project_id", params.ProjectID); !ok {
+			return model.ContainerListParams{}, false
+		}
+	}
+	checks := []struct {
+		value, message string
+		allowed        []string
+	}{
+		{params.Status, "status must be one of: all, running, stopped, attention", []string{"all", "running", "stopped", "attention"}},
+		{params.Sort, "sort must be one of: name, status, address, memory, created", []string{"name", "status", "address", "memory", "created"}},
+		{params.Order, "order must be asc or desc", []string{"asc", "desc"}},
+	}
+	for _, check := range checks {
+		if check.value != "" && !slices.Contains(check.allowed, check.value) {
+			badRequest(c, check.message)
+			return model.ContainerListParams{}, false
+		}
+	}
+	if utf8.RuneCountInString(params.Query) > containerSearchMaxLength {
+		badRequest(c, "q must be at most 100 characters")
+		return model.ContainerListParams{}, false
+	}
+	return params, true
+}
+
+func (h *CoreHandler) GetContainer(c *gin.Context) {
+	h.writeContainer(c, func(item model.Container) any {
+		return containerToUserDTO(item)
+	})
+}
+
+func (h *CoreHandler) AdminGetContainer(c *gin.Context) {
+	h.writeContainer(c, func(item model.Container) any {
+		return containerToDTO(item)
+	})
+}
+
+func (h *CoreHandler) writeContainer(c *gin.Context, mapItem func(model.Container) any) {
+	containerID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	container, err := h.service.GetContainer(c.Request.Context(), containerID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, mapItem(container))
 }
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {

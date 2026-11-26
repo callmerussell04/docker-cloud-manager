@@ -1,40 +1,37 @@
 package service
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
+
+// VolumeSizeStopReason is the last error of a container the volume usage
+// worker stopped because a volume it mounts writable grew beyond its size.
+const VolumeSizeStopReason = "stopped by the platform: a volume this container can write to grew beyond its size"
 
 type VolumeUsageRepo interface {
 	GetReconcileCandidates(ctx context.Context) ([]model.Volume, error)
 	UpdateUsage(ctx context.Context, id uuid.UUID, usedBytes int64) error
-	GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUID, error)
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type VolumeUsageDockerAPI interface {
-	GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error)
+	ScanVolumeUsage(ctx context.Context, volumeName string, scan model.VolumeUsageScan, maxEntries int) (model.VolumeUsageScan, error)
 }
 
 type VolumeUsageContainerRepo interface {
-	GetRunningWithWritableVolumeMounts(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
+	ListRunningWritersOfVolume(ctx context.Context, volumeID uuid.UUID) ([]model.Container, error)
 	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
 	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
-}
-
-type VolumeUsageImageRepo interface {
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type VolumeUsageConfigProvider interface {
@@ -44,155 +41,179 @@ type VolumeUsageConfigProvider interface {
 type VolumeUsageWorker struct {
 	volRepo   VolumeUsageRepo
 	contRepo  VolumeUsageContainerRepo
-	imageRepo VolumeUsageImageRepo
 	dockerAPI VolumeUsageDockerAPI
-	users     UserInfoProvider
 	cfg       VolumeUsageConfigProvider
 	logger    *slog.Logger
+
+	// scans holds measurements that are unfinished or failed to publish, and
+	// lastScanned is the round-robin position by volume ID. Only Run's
+	// goroutine touches them.
+	scans       map[uuid.UUID]model.VolumeUsageScan
+	lastScanned uuid.UUID
 }
 
-func NewVolumeUsageWorker(volRepo VolumeUsageRepo, contRepo VolumeUsageContainerRepo, imageRepo VolumeUsageImageRepo, dockerAPI VolumeUsageDockerAPI, users UserInfoProvider, cfg VolumeUsageConfigProvider, logger *slog.Logger) *VolumeUsageWorker {
+func NewVolumeUsageWorker(volRepo VolumeUsageRepo, contRepo VolumeUsageContainerRepo, dockerAPI VolumeUsageDockerAPI, cfg VolumeUsageConfigProvider, logger *slog.Logger) *VolumeUsageWorker {
 	return &VolumeUsageWorker{
 		volRepo:   volRepo,
 		contRepo:  contRepo,
-		imageRepo: imageRepo,
 		dockerAPI: dockerAPI,
-		users:     users,
 		cfg:       cfg,
 		logger:    logging.WithComponent(logger, "volume_usage_worker"),
+		scans:     map[uuid.UUID]model.VolumeUsageScan{},
 	}
 }
 
 func (w *VolumeUsageWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "volume usage worker started")
 	w.tick(ctx)
-
-	for {
-		interval := time.Duration(w.cfg.Get().EventSyncIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = 30 * time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "volume usage worker stopped")
-			return
-		case <-timer.C:
-			w.tick(ctx)
-		}
-	}
+	runPeriodically(ctx, func() int64 { return w.cfg.Get().VolumeUsageIntervalSeconds }, w.tick)
+	w.logger.InfoContext(ctx, "volume usage worker stopped")
 }
 
 func (w *VolumeUsageWorker) tick(ctx context.Context) {
-	w.refreshUsage(ctx)
-	w.enforceQuotas(ctx)
+	volumes := w.refreshUsage(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	w.enforceSizes(ctx, volumes)
 }
 
-func (w *VolumeUsageWorker) refreshUsage(ctx context.Context) {
+// refreshUsage advances volume measurements within the cycle budget. Volumes
+// are visited round-robin by ID, each for at most the per-volume entry budget.
+// A volume the deadline interrupts after others ran first leads the next
+// cycle, so it gets the whole budget before the rotation passes it; one
+// interrupted while leading is passed, so it cannot hold the lead. Unfinished
+// scans resume from their cursor; only complete scans are published. It
+// returns the volumes with the measurements it published.
+func (w *VolumeUsageWorker) refreshUsage(ctx context.Context) []model.Volume {
 	volumes, err := w.volRepo.GetReconcileCandidates(ctx)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch volumes for usage refresh", "error", err)
-		return
+		return nil
 	}
-	for _, vol := range volumes {
-		usedBytes, err := w.dockerAPI.GetVolumeUsageBytes(ctx, vol.DockerName)
+	w.forgetRemovedScans(volumes)
+	cfg := w.cfg.Get()
+	budget := max(time.Duration(cfg.VolumeUsageCycleBudgetSeconds)*time.Second, time.Second)
+	maxEntries := max(cfg.VolumeUsageScanEntryBudget, 1)
+	cycleCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	published := map[uuid.UUID]int64{}
+
+	for i, vol := range w.rotation(volumes) {
+		if cycleCtx.Err() != nil {
+			break
+		}
+		previous := w.lastScanned
+		w.lastScanned = vol.ID
+		scan, err := w.dockerAPI.ScanVolumeUsage(cycleCtx, vol.DockerName, w.scans[vol.ID], maxEntries)
+		// Kept until published, on error too: the next slice retries from the
+		// last counted entry, and a complete scan is re-published.
+		w.scans[vol.ID] = scan
 		if err != nil {
+			if cycleCtx.Err() != nil {
+				if i > 0 {
+					w.lastScanned = previous
+				}
+				break
+			}
 			w.logger.WarnContext(ctx, "failed to measure volume usage", "volume_id", vol.ID, "docker_name", vol.DockerName, "error", err)
 			continue
 		}
-		if err := w.volRepo.UpdateUsage(ctx, vol.ID, usedBytes); err != nil {
+		if !scan.Complete {
+			continue
+		}
+		if err := w.volRepo.UpdateUsage(ctx, vol.ID, scan.Bytes); err != nil {
 			w.logger.WarnContext(ctx, "failed to update volume usage", "volume_id", vol.ID, "error", err)
+			continue
+		}
+		delete(w.scans, vol.ID)
+		published[vol.ID] = scan.Bytes
+	}
+	if ctx.Err() == nil && cycleCtx.Err() != nil {
+		w.logger.InfoContext(ctx, "volume usage cycle budget spent; unfinished scans resume next cycle", "budget_ms", budget.Milliseconds(), "unfinished_scans", len(w.scans))
+	}
+	for i := range volumes {
+		if bytes, ok := published[volumes[i].ID]; ok {
+			volumes[i].UsedBytes = bytes
+		}
+	}
+	return volumes
+}
+
+// rotation orders volumes by ID, starting after the last volume scanned.
+func (w *VolumeUsageWorker) rotation(volumes []model.Volume) []model.Volume {
+	sorted := slices.SortedFunc(slices.Values(volumes), func(a, b model.Volume) int {
+		return compareVolumeIDs(a.ID, b.ID)
+	})
+	next, _ := slices.BinarySearchFunc(sorted, w.lastScanned, func(v model.Volume, id uuid.UUID) int {
+		return compareVolumeIDs(v.ID, id)
+	})
+	if next < len(sorted) && sorted[next].ID == w.lastScanned {
+		next++
+	}
+	return slices.Concat(sorted[next:], sorted[:next])
+}
+
+func compareVolumeIDs(a, b uuid.UUID) int {
+	return bytes.Compare(a[:], b[:])
+}
+
+func (w *VolumeUsageWorker) forgetRemovedScans(volumes []model.Volume) {
+	listed := make(map[uuid.UUID]struct{}, len(volumes))
+	for _, vol := range volumes {
+		listed[vol.ID] = struct{}{}
+	}
+	for id := range w.scans {
+		if _, ok := listed[id]; !ok {
+			delete(w.scans, id)
 		}
 	}
 }
 
-func (w *VolumeUsageWorker) enforceQuotas(ctx context.Context) {
-	owners, err := w.volRepo.GetOwnersWithVolumes(ctx)
-	if err != nil {
-		w.logger.ErrorContext(ctx, "failed to fetch volume owners", "error", err)
-		return
-	}
-	for _, ownerID := range owners {
-		user, err := w.users.GetUser(ctx, ownerID)
-		if err != nil {
-			w.logger.WarnContext(ctx, "failed to fetch user for volume quota enforcement", "user_id", ownerID, "error", err)
+// enforceSizes stops the running containers that can write to a measured
+// volume whose usage is above its size. Each volume is judged by its own size
+// alone. A kernel-enforced volume is left to the kernel: the scan sums apparent
+// file sizes, which sparse files push past a size the volume cannot exceed.
+func (w *VolumeUsageWorker) enforceSizes(ctx context.Context, volumes []model.Volume) {
+	for _, vol := range volumes {
+		if ctx.Err() != nil {
+			return
+		}
+		if vol.SizeEnforced {
 			continue
 		}
-		usedMB, err := w.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
-		if err != nil {
-			w.logger.WarnContext(ctx, "failed to fetch image disk usage", "user_id", ownerID, "error", err)
+		usage := w.measuredBytes(vol)
+		if usage <= vol.SizeBytes {
 			continue
 		}
-		volumeBytes, err := w.volRepo.GetUserUsedVolumeBytes(ctx, ownerID)
-		if err != nil {
-			w.logger.WarnContext(ctx, "failed to fetch volume disk usage", "user_id", ownerID, "error", err)
-			continue
-		}
-		usedMB += bytesToMBRoundedUp(volumeBytes)
-		if usedMB < user.QuotaDiskMB {
-			continue
-		}
-		w.stopWritableVolumeContainers(ctx, ownerID, usedMB, user.QuotaDiskMB)
+		w.stopVolumeWriters(ctx, vol, usage)
 	}
 }
 
-func (w *VolumeUsageWorker) stopWritableVolumeContainers(ctx context.Context, ownerID uuid.UUID, usedMB, quotaMB int64) {
-	containers, err := w.contRepo.GetRunningWithWritableVolumeMounts(ctx, ownerID)
+// measuredBytes is the larger of a volume's last published measurement and
+// what its unfinished or unpublished scan has counted so far. Files deleted
+// after being counted can overstate usage until the scan completes, which errs
+// toward stopping writers.
+func (w *VolumeUsageWorker) measuredBytes(vol model.Volume) int64 {
+	return max(vol.UsedBytes, w.scans[vol.ID].Bytes)
+}
+
+func (w *VolumeUsageWorker) stopVolumeWriters(ctx context.Context, vol model.Volume, usage int64) {
+	containers, err := w.contRepo.ListRunningWritersOfVolume(ctx, vol.ID)
 	if err != nil {
-		w.logger.WarnContext(ctx, "failed to fetch over-quota containers", "user_id", ownerID, "error", err)
+		w.logger.WarnContext(ctx, "failed to fetch writers of oversized volume", "volume_id", vol.ID, "error", err)
 		return
 	}
 	for _, c := range containers {
-		if err := w.queueStop(ctx, c); err != nil {
+		if err := queueContainerStop(ctx, w.contRepo, c, VolumeSizeStopReason); err != nil {
 			if errors.Is(err, apperrors.ErrConflict) {
-				w.logger.DebugContext(ctx, "over-quota container already has active operation", "container_id", c.ID)
+				w.logger.DebugContext(ctx, "writer of oversized volume already has active operation", "container_id", c.ID, "volume_id", vol.ID)
 				continue
 			}
-			w.logger.WarnContext(ctx, "failed to queue over-quota container stop", "container_id", c.ID, "error", err)
+			w.logger.WarnContext(ctx, "failed to queue stop of oversized volume writer", "container_id", c.ID, "volume_id", vol.ID, "error", err)
 			continue
 		}
-		w.logger.WarnContext(ctx, "container stop queued due to disk quota", "container_id", c.ID, "user_id", ownerID, "used_mb", usedMB, "quota_mb", quotaMB)
+		w.logger.WarnContext(ctx, "container stop queued: a volume it writes to grew beyond its size",
+			"container_id", c.ID, "volume_id", vol.ID, "user_id", vol.OwnerID, "used_bytes", usage, "size_bytes", vol.SizeBytes)
 	}
-}
-
-func (w *VolumeUsageWorker) queueStop(ctx context.Context, c model.Container) error {
-	active, err := w.contRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
-	if err != nil {
-		return err
-	}
-	if active {
-		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
-	}
-	op := model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   c.ID,
-		OwnerID:      c.OwnerID,
-		Operation:    model.OperationStop,
-		Status:       model.OperationStatusPending,
-	}
-	msg := containerqueue.LifecycleMessage{
-		OperationID:    op.ID.String(),
-		ContainerID:    c.ID.String(),
-		OwnerID:        c.OwnerID.String(),
-		Operation:      model.OperationStop,
-		RequestID:      logging.RequestIDFromContext(ctx),
-		CreatedAt:      time.Now().Unix(),
-		PreviousStatus: c.Status,
-	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal over-quota stop message: %w", err)
-	}
-	outbox := model.ContainerLifecycleOutbox{
-		ID:          uuid.New(),
-		OperationID: op.ID,
-		ContainerID: c.ID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
-		Payload:     payload,
-		Status:      model.ContainerOutboxStatusPending,
-	}
-	return w.contRepo.QueueContainerOperation(ctx, c.ID, model.ContainerStatusStopping, model.ContainerStatusExited, op, outbox)
 }

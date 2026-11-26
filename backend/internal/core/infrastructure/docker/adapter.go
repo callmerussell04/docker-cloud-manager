@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
@@ -22,14 +24,34 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 )
+
+// tenantOOMScoreAdj is the OOM score adjustment of every tenant container.
+// When the host runs out of memory, the kernel's OOM killer then picks a
+// tenant workload before the platform's own services, which keep Docker's
+// default of zero.
+const tenantOOMScoreAdj = 500
 
 type Adapter struct {
 	cli            *client.Client
 	hostPathPrefix string
+	pullAuth       func(context.Context, string) (string, error)
+	cgroupParent   string
 }
 
 type AdapterOption func(*Adapter)
+
+func WithPullAuthorization(auth func(context.Context, string) (string, error)) AdapterOption {
+	return func(a *Adapter) { a.pullAuth = auth }
+}
+
+// WithCgroupParent places every container the adapter creates under parent,
+// so the host can cap what user containers take together. Empty keeps
+// Docker's default parent.
+func WithCgroupParent(parent string) AdapterOption {
+	return func(a *Adapter) { a.cgroupParent = strings.TrimSpace(parent) }
+}
 
 func WithHostPathPrefix(path string) AdapterOption {
 	return func(a *Adapter) {
@@ -95,7 +117,49 @@ func (a *Adapter) findUserNetwork(ctx context.Context, networkName string) (stri
 	return "", nil
 }
 
+// errImageDeclaresTraefikLabels names no label: the keys are image content.
+var errImageDeclaresTraefikLabels = apperrors.New(apperrors.ErrBadRequest, "image declares traefik labels, which are reserved for the platform")
+
+// routingSafeImageID returns the content-addressed ID of imageName after
+// checking that the image declares no Traefik labels. Docker copies image
+// labels onto every container created from the image and a container can only
+// override a key, never unset it, so an image's own traefik.* labels would
+// reach Traefik's Docker provider as routers the platform never validated.
+// The caller creates the container from the returned ID, so the image that
+// was checked is the one that runs even if its tag is repointed meanwhile.
+func (a *Adapter) routingSafeImageID(ctx context.Context, imageName string) (string, error) {
+	inspect, err := a.cli.ImageInspect(ctx, imageName)
+	if err != nil {
+		return "", err
+	}
+	if inspect.Config != nil {
+		for key := range inspect.Config.Labels {
+			if isTraefikLabel(key) {
+				return "", errImageDeclaresTraefikLabels
+			}
+		}
+	}
+	if inspect.ID == "" {
+		return "", errors.New("image inspect returned no image id")
+	}
+	return inspect.ID, nil
+}
+
+// isTraefikLabel matches the way Traefik selects labels: by the traefik root
+// segment, ignoring case.
+func isTraefikLabel(key string) bool {
+	root, _, _ := strings.Cut(key, ".")
+	return strings.EqualFold(root, "traefik")
+}
+
+// CreateContainer creates a container whose Traefik labels are exactly the
+// ones set here: an image that declares its own is rejected as a bad request.
 func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
+	imageID, err := a.routingSafeImageID(ctx, params.ImageName)
+	if err != nil {
+		return "", err
+	}
+
 	labels := map[string]string{
 		"managed_by":        "docker-cloud-manager",
 		"dcm.resource_type": "container",
@@ -130,8 +194,10 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
+		OomScoreAdj: tenantOOMScoreAdj,
 		Resources: container.Resources{
 			Memory:            params.MemoryLimitBytes,
+			CgroupParent:      a.cgroupParent,
 			MemorySwap:        memorySwap,
 			MemoryReservation: params.MemoryReservation,
 			CPUShares:         params.CPUShares,
@@ -174,7 +240,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	}
 
 	containerConfig := &container.Config{
-		Image:      params.ImageName,
+		Image:      imageID,
 		Env:        params.EnvVars,
 		Labels:     labels,
 		Cmd:        params.Command,
@@ -206,7 +272,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	if params.Domain != "" && params.InternalPort != 0 {
 		err = a.cli.NetworkConnect(ctx, params.ProxyNetworkName, resp.ID, nil)
 		if err != nil {
-			_ = a.cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
+			_ = a.cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true}) // best-effort removal of the unconnected container; the connect error is returned
 			return "", err
 		}
 	}
@@ -232,22 +298,77 @@ func (a *Adapter) RemoveContainer(ctx context.Context, dockerID string, force bo
 	})
 }
 
+// localVolumeDriver is Docker's built-in volume driver; its "size" option
+// sets a project quota on the volume directory when the host supports it.
+const localVolumeDriver = "local"
+
+// CreateVolume creates a volume. A positive SizeBytes is sent to the local
+// driver as its "size" option, so the kernel refuses writes past it; Docker
+// refuses the create when the host cannot enforce it.
 func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error) {
-	vol, err := a.cli.VolumeCreate(ctx, volume.CreateOptions{
+	opts := volume.CreateOptions{
 		Name: params.VolumeName,
 		Labels: map[string]string{
 			"managed_by":        "docker-cloud-manager",
 			"dcm.resource_type": "volume",
 			"dcm.volume_id":     params.VolumeID,
+			"dcm.volume_name":   params.Name,
 			"dcm.owner_id":      params.OwnerID,
 			"dcm.project_id":    params.ProjectID,
 		},
-	})
+	}
+	if params.SizeBytes > 0 {
+		opts.Driver = localVolumeDriver
+		opts.DriverOpts = map[string]string{"size": strconv.FormatInt(params.SizeBytes, 10)}
+	}
+	vol, err := a.cli.VolumeCreate(ctx, opts)
 	if err != nil {
 		return "", err
 	}
 
 	return vol.Name, nil
+}
+
+// volumeSizeCheckBytes is the size of the throwaway volume the host check
+// creates; it is never written to.
+const volumeSizeCheckBytes = 16 << 20
+
+// volumeSizeCheckRemoveTimeout bounds removing the check volume, which runs
+// even when the caller's context has ended.
+const volumeSizeCheckRemoveTimeout = 10 * time.Second
+
+// CheckVolumeSizeSupport reports whether Docker accepts a size for a local
+// volume on this host. It creates a small sized volume under a unique name
+// and removes it on every path. Docker refusing the size (an invalid
+// parameter, such as "quota size requested but no quota support") reports
+// false with no error; any other failure, including a failed removal, is an
+// error.
+func (a *Adapter) CheckVolumeSizeSupport(ctx context.Context) (supported bool, err error) {
+	name := "dcm-volume-size-check-" + uuid.NewString()
+	defer func() {
+		removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), volumeSizeCheckRemoveTimeout)
+		defer cancel()
+		if removeErr := a.cli.VolumeRemove(removeCtx, name, true); removeErr != nil && !cerrdefs.IsNotFound(removeErr) {
+			supported = false
+			err = errors.Join(err, fmt.Errorf("remove volume size check volume: %w", removeErr))
+		}
+	}()
+	_, err = a.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Name:       name,
+		Driver:     localVolumeDriver,
+		DriverOpts: map[string]string{"size": strconv.Itoa(volumeSizeCheckBytes)},
+		Labels: map[string]string{
+			"managed_by":        "docker-cloud-manager",
+			"dcm.resource_type": "volume_size_check",
+		},
+	})
+	if err != nil {
+		if cerrdefs.IsInvalidArgument(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create volume size check volume: %w", err)
+	}
+	return true, nil
 }
 
 func (a *Adapter) RemoveVolume(ctx context.Context, volumeName string, force bool) error {
@@ -266,15 +387,81 @@ func (a *Adapter) Close() error {
 	return nil
 }
 
+// containerdSnapshotterDriverType is the driver-type Docker reports when its
+// image store is a containerd snapshotter, which ignores the size option.
+const containerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
+
+// ReadDockerHost reads docker info once: the daemon's data directory, and
+// whether Docker enforces the root filesystem size option (StorageOpt "size")
+// on this host, judged from its storage driver. A failed read is
+// RootfsQuotaUnknown with no root directory, and the error.
+func (a *Adapter) ReadDockerHost(ctx context.Context) (model.DockerHost, error) {
+	info, err := a.cli.Info(ctx)
+	if err != nil {
+		return model.DockerHost{RootfsQuota: model.RootfsQuotaUnknown}, fmt.Errorf("read docker info: %w", err)
+	}
+	return model.DockerHost{RootfsQuota: rootfsQuotaStatus(info.Driver, info.DriverStatus), RootDir: info.DockerRootDir}, nil
+}
+
+// rootfsQuotaStatus classifies a storage driver. Overlay2 on XFS counts as
+// enforced because Docker refuses the size option there when the mount lacks
+// project quotas, so a created container has its cap.
+func rootfsQuotaStatus(driver string, driverStatus [][2]string) model.RootfsQuotaStatus {
+	status := make(map[string]string, len(driverStatus))
+	for _, pair := range driverStatus {
+		status[strings.ToLower(pair[0])] = pair[1]
+	}
+	if status["driver-type"] == containerdSnapshotterDriverType {
+		return model.RootfsQuotaNotEnforced
+	}
+	switch driver {
+	case "overlay2":
+		backing, reported := status["backing filesystem"]
+		switch {
+		case !reported:
+			return model.RootfsQuotaUnknown
+		case strings.EqualFold(backing, "xfs"):
+			return model.RootfsQuotaEnforced
+		default:
+			return model.RootfsQuotaNotEnforced
+		}
+	case "btrfs", "zfs", "devicemapper":
+		return model.RootfsQuotaEnforced
+	default:
+		return model.RootfsQuotaUnknown
+	}
+}
+
 func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
-	out, err := a.cli.ImagePull(ctx, imageName, image.PullOptions{})
+	options := image.PullOptions{}
+	if a.pullAuth != nil {
+		auth, err := a.pullAuth(ctx, imageName)
+		if err != nil {
+			return err
+		}
+		options.RegistryAuth = auth
+	}
+	out, err := a.cli.ImagePull(ctx, imageName, options)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }() // read-only stream; close failure is not actionable
 
-	_, err = io.Copy(io.Discard, out)
-	return err
+	decoder := json.NewDecoder(out)
+	for {
+		var progress struct {
+			Error string `json:"error"`
+		}
+		if err := decoder.Decode(&progress); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if progress.Error != "" {
+			return apperrors.New(apperrors.ErrUnavailable, "image pull failed")
+		}
+	}
 }
 
 func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error) {
@@ -341,38 +528,6 @@ func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (model.V
 		Labels:     vol.Labels,
 		Mountpoint: vol.Mountpoint,
 	}, nil
-}
-
-func (a *Adapter) GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error) {
-	vol, err := a.cli.VolumeInspect(ctx, volumeName)
-	if err != nil {
-		return 0, err
-	}
-	var total int64
-	mountpoint := a.volumeMountpointPath(vol.Mountpoint)
-	err = filepath.WalkDir(mountpoint, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		total += info.Size()
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return total, nil
 }
 
 func (a *Adapter) volumeMountpointPath(mountpoint string) string {
@@ -480,7 +635,11 @@ func (a *Adapter) PruneSystem(ctx context.Context) error {
 	return err
 }
 
-func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContainerName string) error {
+// StartRegistryGarbageCollect starts Registry garbage collection as a detached
+// exec in the Registry container and returns its exec ID. It does not wait:
+// the caller polls InspectRegistryGarbageCollect, so it can hold its lease and
+// stop waiting on cancellation.
+func (a *Adapter) StartRegistryGarbageCollect(ctx context.Context, registryContainerName string) (string, error) {
 	execConfig := container.ExecOptions{
 		Cmd: []string{
 			"/bin/registry",
@@ -491,36 +650,28 @@ func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContain
 		AttachStdout: false,
 		AttachStderr: false,
 	}
-
 	execID, err := a.cli.ContainerExecCreate(ctx, registryContainerName, execConfig)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("create registry gc exec: %w", err)
 	}
+	if err := a.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{Detach: true}); err != nil {
+		return "", fmt.Errorf("start registry gc exec: %w", err)
+	}
+	return execID.ID, nil
+}
 
-	err = a.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{})
+// InspectRegistryGarbageCollect reports whether the garbage collection exec
+// still runs and, once it has ended, its exit code. An exec the daemon no
+// longer knows, as after a Registry restart, is apperrors.ErrNotFound.
+func (a *Adapter) InspectRegistryGarbageCollect(ctx context.Context, execID string) (bool, int, error) {
+	inspect, err := a.cli.ContainerExecInspect(ctx, execID)
+	if cerrdefs.IsNotFound(err) {
+		return false, 0, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), fmt.Errorf("inspect registry gc exec: %w", err))
+	}
 	if err != nil {
-		return err
+		return false, 0, fmt.Errorf("inspect registry gc exec: %w", err)
 	}
-
-	// Ждем завершения выполнения команды
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			inspect, err := a.cli.ContainerExecInspect(ctx, execID.ID)
-			if err != nil {
-				return err
-			}
-			if !inspect.Running {
-				if inspect.ExitCode != 0 {
-					return errors.New("registry gc exited with non-zero code")
-				}
-				return nil
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
+	return inspect.Running, inspect.ExitCode, nil
 }
 
 func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
@@ -531,12 +682,80 @@ func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
 	return err
 }
 
+// ListRunningBuildContainers lists the running Kaniko containers Builder
+// started, with the build and owner their labels name. A container whose
+// identity labels do not parse is left out: it cannot be attributed.
+func (a *Adapter) ListRunningBuildContainers(ctx context.Context) ([]model.BuildContainer, error) {
+	containers, err := a.cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "managed_by=docker-cloud-manager"),
+			filters.Arg("label", "dcm.resource_type=build"),
+			filters.Arg("status", "running"),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list build containers: %w", err)
+	}
+	builds := make([]model.BuildContainer, 0, len(containers))
+	for _, c := range containers {
+		buildID, buildErr := uuid.Parse(c.Labels["dcm.build_id"])
+		ownerID, ownerErr := uuid.Parse(c.Labels["dcm.owner_id"])
+		if buildErr != nil || ownerErr != nil {
+			continue
+		}
+		builds = append(builds, model.BuildContainer{DockerID: c.ID, BuildID: buildID, OwnerID: ownerID})
+	}
+	return builds, nil
+}
+
+// GetContainerUsage reads one stats sample of a running container without
+// waiting for a second, unlike GetContainerStats. Its working set is the
+// memory the kernel cannot simply drop: usage less inactive file cache, the
+// figure docker stats shows.
+func (a *Adapter) GetContainerUsage(ctx context.Context, dockerID string) (model.ContainerUsage, error) {
+	statsResp, err := a.cli.ContainerStatsOneShot(ctx, dockerID)
+	if err != nil {
+		return model.ContainerUsage{}, err
+	}
+	defer func() { _ = statsResp.Body.Close() }() // read-only stream; close failure is not actionable
+
+	var v struct {
+		MemoryStats struct {
+			Usage int64            `json:"usage"`
+			Limit int64            `json:"limit"`
+			Stats map[string]int64 `json:"stats"`
+		} `json:"memory_stats"`
+		CPUStats struct {
+			CPUUsage struct {
+				TotalUsage int64 `json:"total_usage"`
+			} `json:"cpu_usage"`
+		} `json:"cpu_stats"`
+	}
+	if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
+		return model.ContainerUsage{}, err
+	}
+	usage := model.ContainerUsage{
+		WorkingSetBytes:     v.MemoryStats.Usage,
+		MemoryLimitBytes:    v.MemoryStats.Limit,
+		CPUUsageNanoseconds: v.CPUStats.CPUUsage.TotalUsage,
+	}
+	// cgroup v2 reports inactive_file; cgroup v1 reports total_inactive_file.
+	inactiveFile, ok := v.MemoryStats.Stats["inactive_file"]
+	if !ok {
+		inactiveFile = v.MemoryStats.Stats["total_inactive_file"]
+	}
+	if inactiveFile > 0 && inactiveFile < v.MemoryStats.Usage {
+		usage.WorkingSetBytes -= inactiveFile
+	}
+	return usage, nil
+}
+
 func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error) {
 	statsResp, err := a.cli.ContainerStats(ctx, dockerID, false)
 	if err != nil {
 		return model.ContainerStats{}, err
 	}
-	defer statsResp.Body.Close()
+	defer func() { _ = statsResp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	var v struct {
 		MemoryStats struct {

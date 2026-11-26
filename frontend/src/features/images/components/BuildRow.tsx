@@ -1,125 +1,97 @@
-import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
-import { type BuildData } from '../types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
-import { useCancelBuild, useDeleteBuild } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { useState } from 'react';
+import { FileText, Trash2, XCircle } from 'lucide-react';
+import type { Scope } from '@/shared/api/scope';
+import { useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { useNowSeconds } from '@/shared/lib/hooks';
+import { cn } from '@/shared/lib/utils';
+import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
+import { MenuItem, MenuSeparator } from '@/shared/ui/Menu';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Dot } from '@/shared/ui/StatusDot';
+import { buildPurpose, buildStatusLabel, buildTiming, buildTone, formatDuration, isBuildActive, type BuildData } from '../model';
+import { BuildPurposeLine } from './BuildPurposeLine';
+import { buildListLayout } from './listLayout';
+import { useBuildActions } from './useBuildActions';
 
 interface BuildRowProps {
   build: BuildData;
-  onViewLogs: (build: BuildData) => void;
+  onOpen: () => void;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
-const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
-
-export function BuildRow({ build, onViewLogs }: BuildRowProps) {
+// BuildRow is a build's line in the list: its tag, what it was for, its
+// state with a live timer while it is queued or running, how long it took
+// and when it was queued. The row opens the build's page; its menu holds the
+// log, Cancel while it is active and Delete once it has finished. Compact
+// rows are the tag, then the state and age.
+export function BuildRow({ build, onOpen, scope = 'own', owner }: BuildRowProps) {
   const t = useT();
-  const locale = useLocale();
-  const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
-  const deleteMutation = useDeleteBuild();
-  const cancelMutation = useCancelBuild();
+  const compact = useShellLayout().rowsCompact;
+  const active = isBuildActive(build.status);
+  // A queued or running build counts its time live.
+  const now = useNowSeconds(active ? 1_000 : 60_000);
+  const actions = useBuildActions(scope, build);
 
-  const getStatusDisplay = (status: string) => {
-    switch (status) {
-      case 'success': 
-        return { icon: <CheckCircle2 className="w-4 h-4" />, variant: 'success' as const, label: statusLabel(t, status) };
-      case 'running': 
-        return { icon: <Loader2 className="w-4 h-4 animate-spin" />, variant: 'info' as const, label: t('status.runningBuild') };
-      case 'pending': 
-        return { icon: <Clock className="w-4 h-4" />, variant: 'warning' as const, label: statusLabel(t, status) };
-      case 'failed': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
-      case 'failed_timeout': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
-      case 'failed_quota_exceeded': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
-      case 'failed_resource_exhausted':
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
-      case 'failed_internal':
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
-      case 'canceled':
-        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: statusLabel(t, status) };
-      default: 
-        return { icon: <Info className="w-4 h-4" />, variant: 'default' as const, label: status };
-    }
-  };
+  const tone = buildTone(build.status);
+  const timing = buildTiming(build, now);
+  const statusText = timing.phase === 'queued' || timing.phase === 'running'
+    ? `${buildStatusLabel(t, build.status)} · ${formatDuration(t, timing.seconds)}`
+    : buildStatusLabel(t, build.status);
+  const took = timing.phase === 'finished' ? formatDuration(t, timing.seconds) : '';
+  const age = ageOf(build.created_at, now);
+  const ageLabel = t(`common.age.${age.unit}`, { count: age.count });
+  const name = build.tag || build.id;
+  const status = <span className={cn('tabular-nums', tone === 'bad' && 'text-red-text')}>{statusText}</span>;
 
-  const display = getStatusDisplay(build.status);
-  const startedDate = new Date(build.started_at * 1000).toLocaleString(dateLocale(locale));
-  const duration = build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
-  const canCancel = build.status === 'pending' || build.status === 'running';
-  const canDelete = !canCancel;
-  const canViewLogs = terminalBuildStatuses.has(build.status);
+  const menu = (
+    <RowMenu label={t('images.buildRowActions', { name })} sheetTitle={name}>
+      <MenuItem icon={FileText} onSelect={onOpen}>{t('images.openLog')}</MenuItem>
+      <MenuSeparator />
+      {actions.canCancel ? (
+        <MenuItem icon={XCircle} disabled={actions.cancelPending} onSelect={actions.requestCancel}>{t('images.cancelBuild')}</MenuItem>
+      ) : (
+        <MenuItem icon={Trash2} danger disabled={actions.deletePending} onSelect={actions.requestDelete}>{t('common.delete')}</MenuItem>
+      )}
+    </RowMenu>
+  );
+
+  const quick = (
+    <>
+      <RowQuickAction icon={FileText} label={t('images.openLog')} onClick={onOpen} />
+      {actions.canCancel && <RowQuickAction icon={XCircle} label={t('images.cancelBuild')} disabled={actions.cancelPending} onClick={actions.requestCancel} />}
+    </>
+  );
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.builds.grid, tableLayouts.builds.minWidth)}>
-      <div className="min-w-0">
-        <h3 className="font-semibold text-sm truncate" title={build.id}>{build.id}</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400">{t('images.buildId')}</p>
+    <ListRow template={compact ? buildListLayout.compact : owner !== undefined ? buildListLayout.owned : buildListLayout.wide} onOpen={onOpen}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <Dot tone={tone} />
+        <div className="min-w-0 flex-1">
+          <div className={cn('truncate font-semibold', compact ? 'text-[15px]' : 'text-[13.5px]')} title={name}>{name}</div>
+          {compact && (
+            <div className="mt-0.5 truncate text-[12.5px] text-label-2">
+              {status}
+              {owner && ` · ${owner}`}
+              {' · '}
+              {ageLabel}
+            </div>
+          )}
+        </div>
       </div>
-
-      <div className="min-w-0">
-        <Badge variant={display.variant} className="flex items-center gap-1.5 px-2.5 py-1 w-fit">
-          {display.icon}
-          <span>{display.label}</span>
-        </Badge>
-      </div>
-
-      <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">
-        {duration !== null ? t('images.seconds', { value: duration }) : '-'}
-      </div>
-
-      <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300 truncate" title={startedDate}>
-        {startedDate}
-      </div>
-
-      <div className="flex items-center gap-2 justify-end shrink-0">
-        <button
-          onClick={() => onViewLogs(build)}
-          disabled={!canViewLogs}
-          className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
-        >
-          <Terminal className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => setConfirmAction('cancel')}
-          disabled={!canCancel || cancelMutation.isPending}
-          className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('images.cancelBuildRequested')}
-        >
-          <XCircle className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => setConfirmAction('delete')}
-          disabled={deleteMutation.isPending || !canDelete}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-        <ConfirmDialog
-          isOpen={confirmAction !== null}
-          title={t('confirm.title')}
-          message={confirmAction === 'cancel' ? t('images.cancelBuildConfirm', { id: build.id }) : t('images.deleteBuildConfirm', { id: build.id })}
-          confirmLabel={confirmAction === 'cancel' ? t('projects.cancelRequested') : t('common.delete')}
-          isLoading={cancelMutation.isPending || deleteMutation.isPending}
-          variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={() => {
-            if (confirmAction === 'cancel') {
-              cancelMutation.mutate(build.id, { onSuccess: () => setConfirmAction(null) });
-            } else if (confirmAction === 'delete') {
-              deleteMutation.mutate(build.id, { onSuccess: () => setConfirmAction(null) });
-            }
-          }}
-        />
-      </div>
-    </div>
+      {!compact && (
+        <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
+          <div className="min-w-0 truncate"><BuildPurposeLine purpose={buildPurpose(build)} /></div>
+          <div className="truncate" title={statusText}>{status}</div>
+          <div className="truncate tabular-nums text-label-2">{took}</div>
+        </>
+      )}
+      <RowEnd age={ageLabel} quick={quick} menu={<>{menu}{actions.dialogs}</>} />
+    </ListRow>
   );
 }

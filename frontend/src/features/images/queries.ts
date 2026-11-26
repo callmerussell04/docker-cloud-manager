@@ -1,0 +1,178 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { PageParams } from '@/shared/api/pagination';
+import type { Scope } from '@/shared/api/scope';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason, isNotFoundError } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import {
+  cancelBuildFn,
+  createBuildFn,
+  createBuildFromGitFn,
+  deleteBuildFn,
+  deleteImageFn,
+  getBuildAvailabilityFn,
+  getBuildFn,
+  getBuildLogsFn,
+  getBuildsFn,
+  getImagesFn,
+} from './api';
+import { buildLogsAvailable, isBuildActive, isImageBusy, type BuildData, type CreateBuildGitPayload } from './model';
+
+export const imageKeys = {
+  all: ['images'] as const,
+  lists: (scope: Scope) => [...imageKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...imageKeys.lists(scope), params] as const,
+  availability: ['images', 'buildAvailability'] as const,
+};
+
+export const buildKeys = {
+  all: ['builds'] as const,
+  lists: (scope: Scope) => [...buildKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...buildKeys.lists(scope), params] as const,
+  detail: (scope: Scope, id: string) => [...buildKeys.all, scope, 'detail', id] as const,
+  logs: (scope: Scope, id: string | undefined) => [...buildKeys.all, scope, 'logs', id] as const,
+};
+
+export function useImages<S extends Scope>(scope: S, page: number, limit: number, enabled = true) {
+  return useQuery({
+    queryKey: imageKeys.list(scope, { page, limit }),
+    queryFn: () => getImagesFn(scope, page, limit),
+    enabled,
+    refetchInterval: (query) => {
+      const images = query.state.data?.items || [];
+      return enabled && images.some((image) => isImageBusy(image.status)) ? 5000 : false;
+    },
+  });
+}
+
+// useBuilds polls while a build is pending or running, unless polling is off.
+export function useBuilds<S extends Scope>(scope: S, page: number, limit: number, { enabled = true, polling = true }: { enabled?: boolean; polling?: boolean } = {}) {
+  return useQuery({
+    queryKey: buildKeys.list(scope, { page, limit }),
+    queryFn: () => getBuildsFn(scope, page, limit),
+    enabled,
+    refetchInterval: (query) => {
+      if (!enabled || !polling) return false;
+      const builds = query.state.data?.items || [];
+      return builds.some((build) => isBuildActive(build.status)) ? 5000 : false;
+    },
+  });
+}
+
+// useBuild reads one build, showing the snapshot it was opened with until its
+// current state arrives, and repeats every 5 s while it is queued or
+// running. A build that is gone stops it.
+export function useBuild(scope: Scope, id: string, snapshot?: BuildData) {
+  return useQuery({
+    queryKey: buildKeys.detail(scope, id),
+    queryFn: (): Promise<BuildData> => getBuildFn(scope, id),
+    enabled: !!id,
+    placeholderData: snapshot,
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
+    refetchInterval: (query) => {
+      // A failed read waits for Try again rather than repeating.
+      if (query.state.error) return false;
+      const build = query.state.data;
+      return !build || isBuildActive(build.status) ? 5000 : false;
+    },
+  });
+}
+
+// useFinishedBuildLog reads a build's log once the build has finished and
+// stored it; Builder uploads it only at the end.
+export function useFinishedBuildLog(scope: Scope, build: Pick<BuildData, 'id' | 'status'>) {
+  return useBuildLogs(scope, build.id, buildLogsAvailable(build.status));
+}
+
+export function useBuildAvailability(enabled = true) {
+  return useQuery({
+    queryKey: imageKeys.availability,
+    queryFn: getBuildAvailabilityFn,
+    enabled,
+  });
+}
+
+export function useBuildLogs(scope: Scope, id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: buildKeys.logs(scope, id),
+    queryFn: () => getBuildLogsFn(scope, id as string),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useCreateBuild() {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: (payload: FormData | CreateBuildGitPayload) => (
+      payload instanceof FormData ? createBuildFn(payload) : createBuildFromGitFn(payload)
+    ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
+      notify(t('images.buildStarted'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('images.buildStartFailed'), 'error', failureReason(error, t));
+    },
+  });
+}
+
+export function useDeleteImage(scope: Scope) {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: (id: string) => deleteImageFn({ scope, id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
+      notify(t(scope === 'all' ? 'admin.resources.imageDeleted' : 'images.deleted'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('images.deleteFailed'), 'error', failureReason(error, t));
+    },
+  });
+}
+
+export function useDeleteBuild(scope: Scope) {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: (id: string) => deleteBuildFn({ scope, id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
+      notify(t(scope === 'all' ? 'admin.resources.buildDeleted' : 'images.buildRecordDeleted'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('images.deleteBuildRecordFailed'), 'error', failureReason(error, t));
+    },
+  });
+}
+
+export function useCancelBuild(scope: Scope) {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: (id: string) => cancelBuildFn({ scope, id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
+      notify(t('images.cancelBuildRequested'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('images.cancelBuildFailed'), 'error', failureReason(error, t));
+    },
+  });
+}

@@ -35,4 +35,4 @@ go.work.sum
 .vscode/
 
 # test mocks
-tests/mocks/
+internal/testutil/mocks/

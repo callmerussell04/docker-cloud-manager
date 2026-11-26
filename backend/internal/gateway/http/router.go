@@ -1,26 +1,22 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
-	"time"
+	"net/netip"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 )
 
-type Config struct {
-	CORSAllowedOrigins []string
-	TrustedProxies     []string
-	MaxJSONBodyBytes   int64
-	AuthRateLimit      middleware.RateLimitConfig
-	UploadRateLimit    middleware.RateLimitConfig
-	AuthRedirect       handler.AuthRedirectConfig
-}
+// Config is the router configuration owned by the config package.
+type Config = config.Router
 
 type RouterDeps struct {
 	AuthHandler                 *handler.AuthHandler
@@ -37,9 +33,16 @@ type RouterDeps struct {
 	Logger                      *slog.Logger
 }
 
-func NewRouter(cfg Config, deps RouterDeps) *gin.Engine {
+func NewRouter(cfg Config, deps RouterDeps) (*gin.Engine, error) {
+	if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, err
+	}
 	router := gin.New()
-	_ = router.SetTrustedProxies(cfg.TrustedProxies)
+	// Traefik supplies X-Forwarded-For; do not fall back to other identity headers.
+	router.RemoteIPHeaders = []string{"X-Forwarded-For"}
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, errors.New("invalid GATEWAY_TRUSTED_PROXIES: expected proxy IP addresses or CIDRs")
+	}
 	limiter := middleware.NewRateLimiter()
 
 	router.Use(logging.RequestIDMiddleware())
@@ -60,25 +63,34 @@ func NewRouter(cfg Config, deps RouterDeps) *gin.Engine {
 	registerAdminRoutes(v1, deps)
 	registerTelemetryRoutes(v1, deps)
 
-	return router
+	return router, nil
 }
 
+// registerAuthRoutes gives each purpose its own bucket under the auth limit,
+// so sign-in navigation, password attempts, session calls and the provider's
+// back-channel logouts never exhaust one another. Navigation routes answer a rejection with a redirect.
 func registerAuthRoutes(v1 *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
 	auth := v1.Group("/auth")
-	auth.Use(middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth"))
-	auth.GET("/providers", deps.AuthHandler.Providers)
-	auth.GET("/oidc/keycloak/start", deps.AuthHandler.StartKeycloakLogin)
-	auth.GET("/oidc/keycloak/callback", deps.AuthHandler.CompleteKeycloakCallback)
-	auth.POST("/register", deps.AuthHandler.Register)
-	auth.POST("/login", deps.AuthHandler.Login)
-	auth.POST("/refresh", deps.AuthHandler.Refresh)
-	auth.POST("/logout", deps.AuthHandler.Logout)
+	credentials := middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth-credentials")
+	session := middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth-session")
+	navigation := middleware.RateLimitWith(limiter, cfg.AuthRateLimit, "auth-oidc-navigation", deps.AuthHandler.RejectRateLimitedNavigation)
+	backchannel := middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth-oidc-backchannel")
+	auth.GET("/providers", session, deps.AuthHandler.Providers)
+	auth.GET("/oidc/keycloak/start", navigation, deps.AuthHandler.StartKeycloakLogin)
+	auth.GET("/oidc/keycloak/callback", navigation, deps.AuthHandler.CompleteKeycloakCallback)
+	// The provider posts here from its server: no cookie and no browser origin.
+	auth.POST("/oidc/keycloak/backchannel-logout", backchannel, deps.AuthHandler.KeycloakBackchannelLogout)
+	auth.POST("/register", credentials, deps.AuthHandler.Register)
+	auth.POST("/login", credentials, deps.AuthHandler.Login)
+	auth.POST("/refresh", session, deps.AuthHandler.Refresh)
+	auth.POST("/logout", session, deps.AuthHandler.Logout)
 }
 
 func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
 	containers := protected.Group("/containers")
 	containers.POST("", deps.CoreHandler.CreateContainer)
 	containers.GET("", deps.CoreHandler.GetContainers)
+	containers.GET("/:id", deps.CoreHandler.GetContainer)
 	containers.POST("/:id/action/:action", deps.CoreHandler.ActionContainer)
 	containers.POST("/:id/expose", deps.CoreHandler.ExposeContainer)
 	containers.GET("/:id/stats", deps.CoreHandler.GetContainerStats)
@@ -99,12 +111,14 @@ func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middlew
 
 	builds := protected.Group("/builds")
 	builds.GET("", deps.CoreHandler.GetBuilds)
+	builds.GET("/:id", deps.CoreHandler.GetBuild)
 	builds.DELETE("/:id", deps.CoreHandler.DeleteBuild)
 	builds.GET("/:id/logs", deps.CoreHTTPProxy)
 	builds.POST("/:id/cancel", deps.CoreHandler.CancelBuild)
 
 	projects := protected.Group("/projects")
 	projects.GET("", deps.CoreHandler.GetProjects)
+	projects.GET("/:id", deps.CoreHandler.GetProject)
 	projects.DELETE("/:id", deps.CoreHandler.DeleteProject)
 	projects.POST("/:id/start", deps.CoreHandler.StartProject)
 	projects.POST("/:id/stop", deps.CoreHandler.StopProject)
@@ -137,8 +151,11 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.PUT("/users/:id", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.UpdateUser)
 	admin.DELETE("/users/:id", adminPermission(deps, permissions.UsersAdminDelete), deps.UserHandler.DeactivateUser)
 	admin.POST("/users/:id/activate", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.ReactivateUser)
+	admin.PUT("/users/:id/quota", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.SetUserQuota)
+	admin.DELETE("/users/:id/quota", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.ResetUserQuota)
 
 	admin.GET("/containers", adminPermission(deps, permissions.ContainersAdminList), deps.CoreHandler.ListAdminContainers)
+	admin.GET("/containers/:id", adminPermission(deps, permissions.ContainersAdminList), deps.CoreHandler.AdminGetContainer)
 	admin.POST("/containers/:id/action/:action", adminPermission(deps, permissions.ContainersAdminAction), deps.CoreHandler.AdminActionContainer)
 	admin.GET("/containers/:id/stats", adminPermission(deps, permissions.ContainersAdminStats), deps.CoreHandler.AdminGetContainerStats)
 	admin.POST("/containers/:id/logs/stream/ticket", adminPermission(deps, permissions.ContainersAdminLogs), deps.TelemetryTicketHandler.IssueLogsTicket(true))
@@ -151,11 +168,13 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.DELETE("/images/:id", adminPermission(deps, permissions.ImagesAdminDelete), deps.CoreHandler.AdminDeleteImage)
 
 	admin.GET("/builds", adminPermission(deps, permissions.BuildsAdminList), deps.CoreHandler.ListAdminBuilds)
+	admin.GET("/builds/:id", adminPermission(deps, permissions.BuildsAdminList), deps.CoreHandler.AdminGetBuild)
 	admin.GET("/builds/:id/logs", adminPermission(deps, permissions.BuildsAdminList), deps.CoreHTTPProxy)
 	admin.POST("/builds/:id/cancel", adminPermission(deps, permissions.BuildsAdminDelete), deps.CoreHandler.AdminCancelBuild)
 	admin.DELETE("/builds/:id", adminPermission(deps, permissions.BuildsAdminDelete), deps.CoreHandler.AdminDeleteBuild)
 
 	admin.GET("/projects", adminPermission(deps, permissions.ProjectsAdminList), deps.CoreHandler.ListAdminProjects)
+	admin.GET("/projects/:id", adminPermission(deps, permissions.ProjectsAdminList), deps.CoreHandler.AdminGetProject)
 	admin.DELETE("/projects/:id", adminPermission(deps, permissions.ProjectsAdminDelete), deps.CoreHandler.AdminDeleteProject)
 	admin.POST("/projects/:id/start", adminPermission(deps, permissions.ProjectsAdminStart), deps.CoreHandler.AdminStartProject)
 	admin.POST("/projects/:id/stop", adminPermission(deps, permissions.ProjectsAdminStop), deps.CoreHandler.AdminStopProject)
@@ -174,20 +193,23 @@ func adminPermission(deps RouterDeps, permission string) gin.HandlerFunc {
 }
 
 func DefaultConfig() Config {
-	return Config{
-		CORSAllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
-		MaxJSONBodyBytes:   1 << 20,
-		AuthRateLimit: middleware.RateLimitConfig{
-			Requests: 20,
-			Window:   time.Minute,
-		},
-		UploadRateLimit: middleware.RateLimitConfig{
-			Requests: 10,
-			Window:   time.Minute,
-		},
-		AuthRedirect: handler.AuthRedirectConfig{
-			AllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
-			CallbackPath:   "/auth/callback",
-		},
+	return config.DefaultRouter()
+}
+
+func validateTrustedProxies(proxies []string) error {
+	for _, proxy := range proxies {
+		prefix, err := netip.ParsePrefix(proxy)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(proxy)
+			if addrErr != nil {
+				return errors.New("invalid GATEWAY_TRUSTED_PROXIES: expected proxy IP addresses or CIDRs")
+			}
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		addr := prefix.Addr()
+		if prefix.Masked().Addr().IsUnspecified() || addr.IsMulticast() || addr.Is4In6() || addr.Zone() != "" {
+			return errors.New("unsafe GATEWAY_TRUSTED_PROXIES: use explicit unicast proxy addresses or restricted CIDRs")
+		}
 	}
+	return nil
 }

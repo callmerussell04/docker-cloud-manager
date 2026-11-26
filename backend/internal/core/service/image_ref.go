@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/google/uuid"
 )
 

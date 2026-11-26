@@ -4,20 +4,20 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/mail"
+	"slices"
 	"strings"
-	"sync"
 	"time"
-	"unicode"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -53,12 +53,6 @@ const (
 	PermissionUsersAdminCreate = permissions.UsersAdminCreate
 	PermissionUsersAdminUpdate = permissions.UsersAdminUpdate
 	PermissionUsersAdminDelete = permissions.UsersAdminDelete
-)
-
-const (
-	defaultQuotaCPU    = 1.0
-	defaultQuotaRAMMB  = 2048
-	defaultQuotaDiskMB = 5120
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -100,56 +94,83 @@ type UserRepository interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error)
 	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
 	ListUsers(ctx context.Context, opts model.ListUsersOptions) ([]model.User, int, error)
-	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
 type TokenProvider interface {
-	GenerateTokens(user model.User) (string, string, error)
-	ValidateAccessToken(token string) (uuid.UUID, error)
-	ValidateRefreshToken(token string) (uuid.UUID, error)
+	GenerateAccessToken(user model.User, sessionID uuid.UUID, expiresAt time.Time) (string, error)
+	ValidateAccessToken(token string) (model.AccessIdentity, error)
 }
 
+// OIDCProvider is the external authorization-code provider. It is unavailable
+// until SSO has reached it; once available it stays available. The
+// authorization request carries an S256 PKCE challenge for verifier, and the
+// code exchange sends verifier.
 type OIDCProvider interface {
-	AuthCodeURL(state, nonce string) string
-	ExchangeCode(ctx context.Context, code, nonce string) (OIDCIdentity, error)
+	Available() bool
+	AuthCodeURL(state, nonce, verifier string) string
+	ExchangeCode(ctx context.Context, code, nonce, verifier string) (OIDCIdentity, error)
+	// EndSessionURL is the provider's sign-out URL for the session whose ID
+	// token is idTokenHint, returning the browser to postLogoutRedirectURI
+	// when it is set. It is empty while the provider is unavailable or when it
+	// advertises no end-session endpoint.
+	EndSessionURL(idTokenHint, postLogoutRedirectURI string) string
+	// VerifyLogoutToken verifies a back-channel logout token. A token the
+	// checks refuse is ErrInvalidToken; a provider whose keys cannot be read
+	// is ErrUnavailable or ErrTimeout.
+	VerifyLogoutToken(ctx context.Context, rawToken string) (OIDCLogout, error)
 }
 
+// OIDCLogout is a verified back-channel logout: the provider session that
+// ended (sid) or, without one, the subject whose sessions ended. At least one
+// is set.
+type OIDCLogout struct {
+	Subject   string
+	SessionID string
+}
+
+// OIDCIdentity holds the ID-token claims DCM reads. PreferredUsername is the
+// only source of a derived username.
 type OIDCIdentity struct {
 	Subject           string
-	Username          string
 	Email             string
 	EmailVerified     bool
 	Groups            []string
 	RealmRoles        []string
 	PreferredUsername string
+	// SessionID is the provider's session (the ID token's sid), which a
+	// back-channel logout names; empty when the provider sent none.
+	SessionID string
+	// IDToken is the raw ID token, kept with the session only as the
+	// id_token_hint of the provider sign-out URL.
+	IDToken string
 }
 
 type AuthService struct {
 	repo          UserRepository
 	tokenProvider TokenProvider
+	sessions      SessionRepository
+	random        io.Reader
 	cfg           Config
 	oidcProvider  OIDCProvider
-	states        map[string]oidcState
-	stateMu       sync.Mutex
+	loginAttempts LoginAttemptRepository
 	now           func() time.Time
+	// adminGroups are the configured administrator groups and realm roles.
+	adminGroups map[string]struct{}
 }
 
 type Config struct {
+	AccessTTL            time.Duration
+	SessionTTL           time.Duration
+	SessionIdleTTL       time.Duration
+	Now                  func() time.Time
+	Random               io.Reader
 	LocalLoginEnabled    bool
 	LocalRegisterEnabled bool
 	OIDCEnabled          bool
 	OIDCProviderName     string
 	OIDCAdminGroups      []string
-	OIDCDefaultRole      string
-	OIDCStateTTL         time.Duration
-}
-
-type oidcState struct {
-	Provider       string
-	Nonce          string
-	BrowserBinding string
-	RedirectAfter  string
-	ExpiresAt      time.Time
+	// Logger receives warnings the caller is not told about; nil discards them.
+	Logger *slog.Logger
 }
 
 type BootstrapAdminConfig struct {
@@ -159,41 +180,31 @@ type BootstrapAdminConfig struct {
 }
 
 type CreateUserInput struct {
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }
 
 type UpdateUserInput struct {
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }
 
 func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
-	userID, err := s.tokenProvider.ValidateAccessToken(accessToken)
+	identity, err := s.tokenProvider.ValidateAccessToken(accessToken)
 	if err != nil {
 		return model.User{}, apperrors.ErrInvalidToken
 	}
-
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
+	user, err := s.sessions.VerifySession(ctx, identity, s.now())
+	if errors.Is(err, apperrors.ErrNotFound) {
 		return model.User{}, apperrors.ErrInvalidToken
 	}
-	if user.Status != model.StatusActive {
-		return model.User{}, apperrors.ErrInvalidToken
-	}
-	return user, nil
+	return user, err
 }
 
 func (s *AuthService) CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error) {
@@ -230,43 +241,69 @@ func (s *AuthService) ListUsers(ctx context.Context, limit, offset int) ([]model
 	return s.repo.ListUsers(ctx, model.ListUsersOptions{Limit: limit, Offset: offset})
 }
 
-func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthService {
-	return NewAuthServiceWithConfig(repo, tokenProvider, nil, Config{
-		LocalLoginEnabled:    true,
-		LocalRegisterEnabled: true,
-		OIDCDefaultRole:      model.RoleUser,
-		OIDCProviderName:     "keycloak",
-		OIDCStateTTL:         10 * time.Minute,
-	})
+// OIDCDeps are the optional dependencies of OIDC sign-in. Both are nil with
+// OIDC off; a provider requires the login-attempt store.
+type OIDCDeps struct {
+	Provider      OIDCProvider
+	LoginAttempts LoginAttemptRepository
 }
 
-func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, oidcProvider OIDCProvider, cfg Config) *AuthService {
+func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository, oidc OIDCDeps, cfg Config) *AuthService {
+	if sessions == nil {
+		panic("session repository is required")
+	}
+	if oidc.Provider != nil && oidc.LoginAttempts == nil {
+		panic("login attempt repository is required with an OIDC provider")
+	}
+	if cfg.AccessTTL <= 0 {
+		cfg.AccessTTL = 15 * time.Minute
+	}
+	if cfg.SessionTTL <= 0 {
+		cfg.SessionTTL = 30 * 24 * time.Hour
+	}
+	if cfg.SessionIdleTTL <= 0 {
+		cfg.SessionIdleTTL = 7 * 24 * time.Hour
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.Random == nil {
+		cfg.Random = rand.Reader
+	}
 	if cfg.OIDCProviderName == "" {
 		cfg.OIDCProviderName = "keycloak"
 	}
-	if cfg.OIDCDefaultRole == "" {
-		cfg.OIDCDefaultRole = model.RoleUser
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	if cfg.OIDCStateTTL <= 0 {
-		cfg.OIDCStateTTL = 10 * time.Minute
+	adminGroups := map[string]struct{}{}
+	for _, group := range cfg.OIDCAdminGroups {
+		if group = strings.TrimSpace(group); group != "" {
+			adminGroups[group] = struct{}{}
+		}
 	}
 	return &AuthService{
+		adminGroups:   adminGroups,
 		repo:          repo,
 		tokenProvider: tokenProvider,
 		cfg:           cfg,
-		oidcProvider:  oidcProvider,
-		states:        map[string]oidcState{},
-		now:           time.Now,
+		oidcProvider:  oidc.Provider,
+		loginAttempts: oidc.LoginAttempts,
+		now:           cfg.Now,
+		random:        cfg.Random,
+		sessions:      sessions,
 	}
 }
 
 func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdminConfig) error {
+	cfg.Username = normalizeIdentity(cfg.Username)
+	cfg.Email = normalizeIdentity(cfg.Email)
 	existing, err := s.repo.GetUserByUsername(ctx, cfg.Username)
 	if err == nil {
 		if existing.Role == model.RoleAdmin {
 			if existing.Status != model.StatusActive {
 				existing.Status = model.StatusActive
-				if err := s.repo.UpdateUser(ctx, existing); err != nil {
+				if err := s.updateUser(ctx, existing, false, true); err != nil {
 					return fmt.Errorf("failed to activate bootstrap admin: %w", err)
 				}
 			}
@@ -290,9 +327,6 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdm
 		PasswordHash: string(hash),
 		Role:         model.RoleAdmin,
 		Status:       model.StatusActive,
-		QuotaCPU:     defaultQuotaCPU,
-		QuotaRAMMB:   defaultQuotaRAMMB,
-		QuotaDiskMB:  defaultQuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 
@@ -310,6 +344,9 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	if !s.cfg.LocalRegisterEnabled {
 		return uuid.Nil, apperrors.ErrNotFound
 	}
+	if err := validatePasswordLength(password); err != nil {
+		return uuid.Nil, err
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -318,14 +355,11 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 
 	user := model.User{
 		ID:           uuid.New(),
-		Username:     username,
-		Email:        email,
+		Username:     normalizeIdentity(username),
+		Email:        normalizeIdentity(email),
 		PasswordHash: string(hash),
 		Role:         model.RoleUser,
 		Status:       model.StatusActive,
-		QuotaCPU:     defaultQuotaCPU,
-		QuotaRAMMB:   defaultQuotaRAMMB,
-		QuotaDiskMB:  defaultQuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 
@@ -340,244 +374,293 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	return user.ID, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string) (string, string, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string) (model.SignIn, error) {
 	if !s.cfg.LocalLoginEnabled {
-		return "", "", apperrors.ErrNotFound
+		return model.SignIn{}, apperrors.ErrNotFound
 	}
 
-	user, err := s.repo.GetUserByUsername(ctx, username)
+	user, err := s.repo.GetUserByUsername(ctx, normalizeIdentity(username))
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			return "", "", apperrors.ErrInvalidCredentials
+			return model.SignIn{}, apperrors.ErrInvalidCredentials
 		}
-		return "", "", apperrors.ErrInternal
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return model.SignIn{}, apperrors.ErrTimeout
+		}
+		return model.SignIn{}, apperrors.ErrUnavailable
 	}
 	if user.Status != model.StatusActive {
-		return "", "", apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 	if user.AuthSource != "" && user.AuthSource != model.AuthSourceLocal {
-		return "", "", apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
-	if err != nil {
-		return "", "", apperrors.ErrInvalidCredentials
+	// bcrypt compares only the first 72 bytes; no stored password is longer, so a
+	// longer one would otherwise match the password it starts with.
+	if len(password) > maxPasswordBytes {
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 
-	accessToken, refreshToken, err := s.tokenProvider.GenerateTokens(user)
-	if err != nil {
-		return "", "", apperrors.ErrInternal
-	}
-
-	return accessToken, refreshToken, nil
+	return s.createSession(ctx, user, sessionOrigin{})
 }
 
-func (s *AuthService) AuthProviders() []string {
-	if !s.cfg.OIDCEnabled || s.oidcProvider == nil {
-		return []string{}
+// AuthProviders lists the enabled external providers and whether each is available.
+func (s *AuthService) AuthProviders() []model.AuthProvider {
+	if !s.oidcEnabled() {
+		return []model.AuthProvider{}
 	}
-	return []string{s.cfg.OIDCProviderName}
+	return []model.AuthProvider{{Name: s.cfg.OIDCProviderName, Available: s.oidcProvider.Available()}}
 }
 
 func (s *AuthService) LocalAuthConfig() (loginEnabled bool, registerEnabled bool) {
 	return s.cfg.LocalLoginEnabled, s.cfg.LocalRegisterEnabled
 }
 
-func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (string, string, error) {
-	_ = ctx
-	if !s.oidcAvailable(provider) {
-		return "", "", apperrors.ErrNotFound
+// StartOIDCLogin stores a new login attempt and returns what the browser
+// needs to go to the provider. Only digests of the state and of the browser
+// binding are stored.
+func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStart, error) {
+	if err := s.requireOIDCProvider(provider); err != nil {
+		return model.OIDCLoginStart{}, err
 	}
 
+	// Each is 32 random bytes in base64url; the verifier is a 43-character
+	// RFC 7636 verifier.
 	state, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
 	nonce, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
-	browserBinding, err := randomToken()
+	verifier, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
-	if strings.TrimSpace(redirectAfter) == "" {
+	binding, err := randomToken()
+	if err != nil {
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
+	}
+	redirectAfter = strings.TrimSpace(redirectAfter)
+	if redirectAfter == "" {
 		redirectAfter = "/"
 	}
 
-	s.stateMu.Lock()
-	s.cleanupExpiredStatesLocked()
-	s.states[state] = oidcState{
-		Provider:       provider,
-		Nonce:          nonce,
-		BrowserBinding: browserBinding,
-		RedirectAfter:  strings.TrimSpace(redirectAfter),
-		ExpiresAt:      s.now().Add(s.cfg.OIDCStateTTL),
+	now := s.now()
+	attempt := model.LoginAttempt{
+		StateDigest:   secretDigest(state),
+		Provider:      provider,
+		Nonce:         nonce,
+		PKCEVerifier:  verifier,
+		BindingDigest: secretDigest(binding),
+		RedirectAfter: redirectAfter,
+		CreatedAt:     now,
+		ExpiresAt:     now.Add(OIDCLoginAttemptTTL),
 	}
-	s.stateMu.Unlock()
-
-	return s.oidcProvider.AuthCodeURL(state, nonce), browserBinding, nil
+	if err := s.loginAttempts.SaveLoginAttempt(ctx, attempt); err != nil {
+		return model.OIDCLoginStart{}, err
+	}
+	return model.OIDCLoginStart{
+		AuthURL:      s.oidcProvider.AuthCodeURL(state, nonce, verifier),
+		State:        state,
+		StateBinding: binding,
+		ExpiresAt:    attempt.ExpiresAt,
+	}, nil
 }
 
-func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (string, string, string, error) {
-	if !s.oidcAvailable(provider) {
-		return "", "", "", apperrors.ErrNotFound
+// CompleteOIDCCallback consumes the attempt and signs its user in. Expected
+// rejections are outcomes; provider or storage unavailability and timeouts
+// are errors. A rejection after the attempt was consumed carries its target.
+func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error) {
+	if err := s.requireOIDCProvider(provider); err != nil {
+		return model.OIDCCallbackResult{}, err
 	}
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" || strings.TrimSpace(stateBinding) == "" {
-		return "", "", "", apperrors.ErrBadRequest
+		return model.OIDCCallbackResult{Outcome: model.OIDCCallbackInvalidAttempt}, nil
 	}
 
-	oidcState, err := s.consumeOIDCState(provider, state, stateBinding)
+	attempt, err := s.loginAttempts.ConsumeLoginAttempt(ctx, secretDigest(state), provider, secretDigest(stateBinding), s.now())
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return model.OIDCCallbackResult{Outcome: model.OIDCCallbackInvalidAttempt}, nil
+	}
 	if err != nil {
-		return "", "", "", err
+		return model.OIDCCallbackResult{}, err
+	}
+	rejected := func(outcome model.OIDCCallbackOutcome) (model.OIDCCallbackResult, error) {
+		return model.OIDCCallbackResult{Outcome: outcome, RedirectAfter: attempt.RedirectAfter}, nil
 	}
 
-	identity, err := s.oidcProvider.ExchangeCode(ctx, code, oidcState.Nonce)
+	identity, err := s.oidcProvider.ExchangeCode(ctx, code, attempt.Nonce, attempt.PKCEVerifier)
+	if errors.Is(err, apperrors.ErrInvalidCredentials) {
+		return rejected(model.OIDCCallbackIdentityRejected)
+	}
 	if err != nil {
-		return "", "", "", err
+		return model.OIDCCallbackResult{}, err
 	}
 
 	user, err := s.provisionOIDCUser(ctx, provider, identity)
-	if err != nil {
-		return "", "", "", err
+	switch {
+	case errors.Is(err, apperrors.ErrInvalidCredentials):
+		return rejected(model.OIDCCallbackIdentityRejected)
+	case errors.Is(err, apperrors.ErrConflict):
+		return rejected(model.OIDCCallbackAccountConflict)
+	case err != nil:
+		return model.OIDCCallbackResult{}, err
 	}
+	// The user has proven their identity at the provider, so unlike local
+	// sign-in the answer says the account is deactivated.
 	if user.Status != model.StatusActive {
-		return "", "", "", apperrors.ErrInvalidCredentials
+		return rejected(model.OIDCCallbackAccountDeactivated)
 	}
 
-	accessToken, refreshToken, err := s.tokenProvider.GenerateTokens(user)
+	signIn, err := s.createSession(ctx, user, sessionOrigin{provider: provider, providerSessionID: identity.SessionID, idToken: identity.IDToken})
+	if errors.Is(err, apperrors.ErrInvalidCredentials) {
+		// Deactivated between provisioning and the session lock.
+		return rejected(model.OIDCCallbackAccountDeactivated)
+	}
 	if err != nil {
-		return "", "", "", apperrors.ErrInternal
+		return model.OIDCCallbackResult{}, err
 	}
-
-	return accessToken, refreshToken, oidcState.RedirectAfter, nil
+	return model.OIDCCallbackResult{Outcome: model.OIDCCallbackSuccess, Tokens: signIn.Tokens, User: signIn.User, RedirectAfter: attempt.RedirectAfter}, nil
 }
 
-func (s *AuthService) oidcAvailable(provider string) bool {
-	return s.cfg.OIDCEnabled && s.oidcProvider != nil && provider == s.cfg.OIDCProviderName
+func (s *AuthService) oidcEnabled() bool {
+	return s.cfg.OIDCEnabled && s.oidcProvider != nil
 }
 
-func (s *AuthService) consumeOIDCState(provider, state, stateBinding string) (oidcState, error) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.cleanupExpiredStatesLocked()
-
-	stored, ok := s.states[state]
-	if !ok || stored.Provider != provider || !secureStringEqual(stored.BrowserBinding, stateBinding) {
-		return oidcState{}, apperrors.ErrInvalidCredentials
+// requireOIDCProvider answers not found for a provider that is not enabled and
+// unavailable for an enabled one SSO has not reached yet.
+func (s *AuthService) requireOIDCProvider(provider string) error {
+	if !s.oidcEnabled() || provider != s.cfg.OIDCProviderName {
+		return apperrors.ErrNotFound
 	}
-	delete(s.states, state)
-	return stored, nil
-}
-
-func (s *AuthService) cleanupExpiredStatesLocked() {
-	now := s.now()
-	for state, stored := range s.states {
-		if now.After(stored.ExpiresAt) {
-			delete(s.states, state)
-		}
+	if !s.oidcProvider.Available() {
+		return apperrors.New(apperrors.ErrUnavailable, "identity provider is not available")
 	}
+	return nil
 }
 
+// provisionOIDCUser returns the user bound to the identity, creating it on the
+// first sign-in and otherwise synchronizing its provider-managed profile. A
+// deactivated user is returned unchanged, before any write.
 func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, identity OIDCIdentity) (model.User, error) {
 	if strings.TrimSpace(identity.Subject) == "" {
 		return model.User{}, apperrors.ErrInvalidCredentials
 	}
-
-	now := s.now()
-	role := s.roleForOIDCIdentity(identity)
-	baseUsername := normalizeExternalUsername(identity.Username, identity.PreferredUsername, identity.Subject)
+	identityHash := oidcIdentityHash(provider, identity.Subject)
 
 	existing, err := s.repo.GetUserByExternalIdentity(ctx, provider, identity.Subject)
-	if err == nil {
-		username, err := s.resolveOIDCUsername(ctx, existing.ID, existing.Username, baseUsername, identity.Subject)
-		if err != nil {
-			return model.User{}, err
+	if errors.Is(err, apperrors.ErrNotFound) {
+		var created model.User
+		created, err = s.createOIDCUser(ctx, provider, identity, identityHash)
+		if !errors.Is(err, apperrors.ErrAlreadyExists) {
+			return created, err
 		}
-		email, err := s.resolveOIDCEmail(ctx, existing.ID, provider, identity.Subject, identity.Email)
-		if err != nil {
-			return model.User{}, err
+		// A simultaneous first sign-in of the same identity may have saved it
+		// first; continue as that user. Otherwise the save hit another user.
+		existing, err = s.repo.GetUserByExternalIdentity(ctx, provider, identity.Subject)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
 		}
-		if err := s.ensureNotLastActiveAdmin(ctx, existing, role, existing.Status); err != nil {
-			return model.User{}, err
-		}
-		existing.Username = username
-		existing.Email = email
-		existing.Role = role
-		existing.AuthSource = model.AuthSourceOIDC
-		existing.ExternalProvider = provider
-		existing.ExternalSubject = identity.Subject
-		existing.ExternalUsername = firstNonEmpty(identity.Username, identity.PreferredUsername)
-		existing.LastLoginAt = &now
-		if err := s.repo.UpdateUser(ctx, existing); err != nil {
-			if errors.Is(err, apperrors.ErrAlreadyExists) {
-				return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
-			}
-			return model.User{}, fmt.Errorf("failed to update oidc user: %w", err)
-		}
-		return existing, nil
 	}
-	if !errors.Is(err, apperrors.ErrNotFound) {
+	if err != nil {
 		return model.User{}, fmt.Errorf("failed to get oidc user: %w", err)
 	}
+	if existing.Status != model.StatusActive {
+		return existing, nil
+	}
+	return s.syncOIDCUser(ctx, existing, identity, identityHash)
+}
 
+// createOIDCUser saves a new user for the identity. A unique violation is
+// returned as ErrAlreadyExists for the caller to resolve.
+func (s *AuthService) createOIDCUser(ctx context.Context, provider string, identity OIDCIdentity, identityHash string) (model.User, error) {
 	userID := uuid.New()
-	username, err := s.resolveOIDCUsername(ctx, userID, "", baseUsername, identity.Subject)
+	username, err := s.resolveOIDCUsername(ctx, userID, "", deriveOIDCUsername(identity.PreferredUsername, identityHash), identityHash)
 	if err != nil {
 		return model.User{}, err
 	}
-	email, err := s.resolveOIDCEmail(ctx, userID, provider, identity.Subject, identity.Email)
+	email, err := s.resolveOIDCEmail(ctx, userID, identity, identityHash)
 	if err != nil {
 		return model.User{}, err
 	}
-
+	role := model.RoleUser
+	if s.providerManagesRoles() {
+		role = s.roleFromProvider(identity)
+	}
 	user := model.User{
 		ID:               userID,
 		Username:         username,
 		Email:            email,
 		Role:             role,
 		Status:           model.StatusActive,
-		QuotaCPU:         defaultQuotaCPU,
-		QuotaRAMMB:       defaultQuotaRAMMB,
-		QuotaDiskMB:      defaultQuotaDiskMB,
 		AuthSource:       model.AuthSourceOIDC,
 		ExternalProvider: provider,
 		ExternalSubject:  identity.Subject,
-		ExternalUsername: firstNonEmpty(identity.Username, identity.PreferredUsername),
-		LastLoginAt:      &now,
+		ExternalUsername: strings.TrimSpace(identity.PreferredUsername),
 	}
 	if err := s.repo.SaveUser(ctx, user); err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
+			return model.User{}, err
 		}
 		return model.User{}, fmt.Errorf("failed to save oidc user: %w", err)
 	}
 	return user, nil
 }
 
-func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uuid.UUID, currentUsername, base, subject string) (string, error) {
-	user, err := s.repo.GetUserByUsername(ctx, base)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return base, nil
+// syncOIDCUser writes the provider-managed username and email, and the role
+// when the provider manages it. A demotion the last-admin guard refuses is
+// skipped with a warning, so the last active administrator still signs in.
+func (s *AuthService) syncOIDCUser(ctx context.Context, user model.User, identity OIDCIdentity, identityHash string) (model.User, error) {
+	username, err := s.resolveOIDCUsername(ctx, user.ID, user.Username, deriveOIDCUsername(identity.PreferredUsername, identityHash), identityHash)
+	if err != nil {
+		return model.User{}, err
+	}
+	email, err := s.resolveOIDCEmail(ctx, user.ID, identity, identityHash)
+	if err != nil {
+		return model.User{}, err
+	}
+	user.Username = username
+	user.Email = email
+	user.ExternalUsername = strings.TrimSpace(identity.PreferredUsername)
+	if s.providerManagesRoles() {
+		user.Role = s.roleFromProvider(identity)
+	}
+	err = s.updateUser(ctx, user, false, false)
+	if errors.Is(err, errLastActiveAdmin) {
+		s.cfg.Logger.WarnContext(ctx, "oidc role synchronization skipped: the user is the last active admin", "user_id", user.ID)
+		user.Role = model.RoleAdmin
+		err = s.updateUser(ctx, user, false, false)
+	}
+	if errors.Is(err, apperrors.ErrAlreadyExists) {
+		return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to check oidc username: %w", err)
+		return model.User{}, fmt.Errorf("failed to update oidc user: %w", err)
 	}
-	if user.ID == currentUserID {
-		return base, nil
-	}
+	return user, nil
+}
 
-	suffix := shortSubjectSuffix(subject)
-	candidate := trimUsername(base, 30-len(suffix)-1) + "-" + suffix
-	user, err = s.repo.GetUserByUsername(ctx, candidate)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return candidate, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to check oidc username: %w", err)
-	}
-	if user.ID == currentUserID {
-		return candidate, nil
+// resolveOIDCUsername picks the first candidate no other user holds: the
+// derived base, the base with 8 characters of the identity hash, then "oidc-"
+// and 24 of them. Past those an existing user keeps currentUsername, and a new
+// user (empty currentUsername) is an account conflict.
+func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uuid.UUID, currentUsername, base, identityHash string) (string, error) {
+	suffix := "-" + identityHash[:8]
+	candidates := []string{base, cutUsername(base, maxDerivedUsername-len(suffix)) + suffix, oidcFallbackName(identityHash)}
+	for _, candidate := range candidates {
+		user, err := s.repo.GetUserByUsername(ctx, candidate)
+		if errors.Is(err, apperrors.ErrNotFound) || (err == nil && user.ID == currentUserID) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to check oidc username: %w", err)
+		}
 	}
 	if currentUsername != "" {
 		return currentUsername, nil
@@ -585,8 +668,10 @@ func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uui
 	return "", apperrors.New(apperrors.ErrConflict, "oidc username already exists")
 }
 
-func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.UUID, provider, subject, upstreamEmail string) (string, error) {
-	if email := normalizeExternalEmail(upstreamEmail); email != "" {
+// resolveOIDCEmail stores the provider's email only when it is verified, valid
+// and no other user holds it; otherwise the deterministic fallback address.
+func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.UUID, identity OIDCIdentity, identityHash string) (string, error) {
+	if email := normalizeExternalEmail(identity.Email); identity.EmailVerified && email != "" {
 		user, err := s.repo.GetUserByEmail(ctx, email)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return email, nil
@@ -599,7 +684,7 @@ func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.U
 		}
 	}
 
-	email := oidcFallbackEmail(provider, subject)
+	email := oidcFallbackName(identityHash) + "@oidc.local"
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return email, nil
@@ -613,49 +698,34 @@ func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.U
 	return "", apperrors.New(apperrors.ErrConflict, "oidc fallback email already exists")
 }
 
-func (s *AuthService) roleForOIDCIdentity(identity OIDCIdentity) string {
-	adminGroups := map[string]struct{}{}
-	for _, group := range s.cfg.OIDCAdminGroups {
-		group = strings.TrimSpace(group)
-		if group != "" {
-			adminGroups[group] = struct{}{}
-		}
-	}
-	for _, value := range append(identity.Groups, identity.RealmRoles...) {
-		if _, ok := adminGroups[value]; ok {
+// providerManagesRoles reports whether the identity provider owns the role of
+// an OIDC user, which it does when administrator groups are configured.
+func (s *AuthService) providerManagesRoles() bool {
+	return len(s.adminGroups) > 0
+}
+
+// RoleManagedByProvider reports whether the identity provider owns user's role:
+// an OIDC user's while administrator groups are configured.
+func (s *AuthService) RoleManagedByProvider(user model.User) bool {
+	return user.AuthSource == model.AuthSourceOIDC && s.providerManagesRoles()
+}
+
+// roleFromProvider is admin when any configured administrator group appears in
+// the identity's groups or realm roles, and user otherwise.
+func (s *AuthService) roleFromProvider(identity OIDCIdentity) string {
+	for _, value := range append(slices.Clone(identity.Groups), identity.RealmRoles...) {
+		if _, ok := s.adminGroups[value]; ok {
 			return model.RoleAdmin
 		}
-	}
-	if validRole(s.cfg.OIDCDefaultRole) {
-		return s.cfg.OIDCDefaultRole
 	}
 	return model.RoleUser
 }
 
-func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string, string, error) {
-	userID, err := s.tokenProvider.ValidateRefreshToken(refreshToken)
-	if err != nil {
-		return "", "", apperrors.ErrInvalidToken
-	}
-
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return "", "", apperrors.ErrInvalidToken
-	}
-	if user.Status != model.StatusActive {
-		return "", "", apperrors.ErrInvalidToken
-	}
-
-	accessToken, newRefreshToken, err := s.tokenProvider.GenerateTokens(user)
-	if err != nil {
-		return "", "", apperrors.ErrInternal
-	}
-
-	return accessToken, newRefreshToken, nil
-}
-
 func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (model.User, error) {
-	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+	if err := validateUserInput(input.Role, input.Status); err != nil {
+		return model.User{}, err
+	}
+	if err := validatePasswordLength(input.Password); err != nil {
 		return model.User{}, err
 	}
 
@@ -666,14 +736,11 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 
 	user := model.User{
 		ID:           uuid.New(),
-		Username:     input.Username,
-		Email:        input.Email,
+		Username:     normalizeIdentity(input.Username),
+		Email:        normalizeIdentity(input.Email),
 		PasswordHash: string(hash),
 		Role:         input.Role,
 		Status:       input.Status,
-		QuotaCPU:     input.QuotaCPU,
-		QuotaRAMMB:   input.QuotaRAMMB,
-		QuotaDiskMB:  input.QuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 	if err := s.repo.SaveUser(ctx, user); err != nil {
@@ -686,7 +753,10 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 }
 
 func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input UpdateUserInput) (model.User, error) {
-	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+	if err := validateUserInput(input.Role, input.Status); err != nil {
+		return model.User{}, err
+	}
+	if err := validatePasswordLength(input.Password); err != nil {
 		return model.User{}, err
 	}
 
@@ -694,17 +764,14 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 	if err != nil {
 		return model.User{}, err
 	}
-	if err := s.ensureNotLastActiveAdmin(ctx, user, input.Role, input.Status); err != nil {
+	if err := s.refuseProviderManagedEdit(user, input); err != nil {
 		return model.User{}, err
 	}
 
-	user.Username = input.Username
-	user.Email = input.Email
+	user.Username = normalizeIdentity(input.Username)
+	user.Email = normalizeIdentity(input.Email)
 	user.Role = input.Role
 	user.Status = input.Status
-	user.QuotaCPU = input.QuotaCPU
-	user.QuotaRAMMB = input.QuotaRAMMB
-	user.QuotaDiskMB = input.QuotaDiskMB
 	if input.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
@@ -713,13 +780,37 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 		user.PasswordHash = string(hash)
 	}
 
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, input.Password != "", true); err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return model.User{}, apperrors.ErrAlreadyExists
+		}
+		if errors.Is(err, apperrors.ErrConflict) {
+			return model.User{}, err
 		}
 		return model.User{}, fmt.Errorf("failed to update user: %w", err)
 	}
 	return user, nil
+}
+
+var (
+	errProfileManagedByProvider = apperrors.New(apperrors.ErrBadRequest, "username, email and password of this user are managed by the identity provider")
+	errRoleManagedByProvider    = apperrors.New(apperrors.ErrBadRequest, "role of this user is managed by the identity provider")
+)
+
+// refuseProviderManagedEdit refuses an update that would change what the
+// identity provider owns and so be reverted at the user's next sign-in. The
+// refusals echo no value.
+func (s *AuthService) refuseProviderManagedEdit(user model.User, input UpdateUserInput) error {
+	if user.AuthSource != model.AuthSourceOIDC {
+		return nil
+	}
+	if normalizeIdentity(input.Username) != user.Username || normalizeIdentity(input.Email) != user.Email || input.Password != "" {
+		return errProfileManagedByProvider
+	}
+	if s.RoleManagedByProvider(user) && input.Role != user.Role {
+		return errRoleManagedByProvider
+	}
+	return nil
 }
 
 func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error) {
@@ -727,11 +818,11 @@ func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (mod
 	if err != nil {
 		return model.User{}, err
 	}
-	if err := s.ensureNotLastActiveAdmin(ctx, user, user.Role, model.StatusDeactivated); err != nil {
-		return model.User{}, err
-	}
 	user.Status = model.StatusDeactivated
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, false, true); err != nil {
+		if errors.Is(err, apperrors.ErrConflict) {
+			return model.User{}, err
+		}
 		return model.User{}, fmt.Errorf("failed to deactivate user: %w", err)
 	}
 	return user, nil
@@ -743,21 +834,30 @@ func (s *AuthService) ReactivateUser(ctx context.Context, userID uuid.UUID) (mod
 		return model.User{}, err
 	}
 	user.Status = model.StatusActive
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, false, true); err != nil {
 		return model.User{}, fmt.Errorf("failed to reactivate user: %w", err)
 	}
 	return user, nil
 }
 
-func validateUserInput(role, status string, quotaCPU float64, quotaRAMMB, quotaDiskMB int64) error {
+func validateUserInput(role, status string) error {
 	if !validRole(role) {
 		return apperrors.New(apperrors.ErrBadRequest, "role must be one of: admin, user")
 	}
 	if !validStatus(status) {
 		return apperrors.New(apperrors.ErrBadRequest, "status must be one of: active, deactivated")
 	}
-	if quotaCPU <= 0 || quotaRAMMB <= 0 || quotaDiskMB <= 0 {
-		return apperrors.New(apperrors.ErrBadRequest, "quotas must be positive")
+	return nil
+}
+
+// maxPasswordBytes is the longest password bcrypt hashes; it counts bytes, not characters.
+const maxPasswordBytes = 72
+
+// validatePasswordLength runs before hashing, so a too-long password is the
+// caller's mistake rather than a hashing failure.
+func validatePasswordLength(password string) error {
+	if len(password) > maxPasswordBytes {
+		return apperrors.New(apperrors.ErrBadRequest, "password must be at most 72 bytes")
 	}
 	return nil
 }
@@ -770,23 +870,6 @@ func validStatus(status string) bool {
 	return status == model.StatusActive || status == model.StatusDeactivated
 }
 
-func (s *AuthService) ensureNotLastActiveAdmin(ctx context.Context, current model.User, nextRole, nextStatus string) error {
-	if current.Role != model.RoleAdmin || current.Status != model.StatusActive {
-		return nil
-	}
-	if nextRole == model.RoleAdmin && nextStatus == model.StatusActive {
-		return nil
-	}
-	count, err := s.repo.CountActiveAdmins(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to count active admins: %w", err)
-	}
-	if count <= 1 {
-		return apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
-	}
-	return nil
-}
-
 func randomToken() (string, error) {
 	var buf [32]byte
 	if _, err := rand.Read(buf[:]); err != nil {
@@ -795,45 +878,65 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf[:]), nil
 }
 
-func secureStringEqual(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	aHash := sha256.Sum256([]byte(a))
-	bHash := sha256.Sum256([]byte(b))
-	return subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1
+// secretDigest is the stored form of a login attempt's state or browser
+// binding; neither secret is stored.
+func secretDigest(value string) []byte {
+	sum := sha256.Sum256([]byte(value))
+	return sum[:]
 }
 
-func normalizeExternalUsername(username, preferredUsername, subject string) string {
-	base := firstNonEmpty(username, preferredUsername, subject)
+// normalizeIdentity is the stored form of a username or an email: trimmed and
+// lowercased, so identities that differ only by case are one identity.
+func normalizeIdentity(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+// maxDerivedUsername bounds a username derived from the provider, leaving room
+// below the local limit.
+const maxDerivedUsername = 30
+
+// usernameSeparators are the characters besides a-z and 0-9 a derived
+// username keeps; it neither starts nor ends with one.
+const usernameSeparators = "._-"
+
+// deriveOIDCUsername turns preferred_username into a username that follows the
+// local rule: the part before the first @, lowercased, without characters
+// outside a-z, 0-9 and the separators, cut to 30 characters. A result shorter
+// than 3 characters becomes "oidc-" and 8 characters of the identity hash.
+func deriveOIDCUsername(preferredUsername, identityHash string) string {
+	local, _, _ := strings.Cut(strings.TrimSpace(preferredUsername), "@")
 	var b strings.Builder
-	for _, r := range strings.ToLower(base) {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r):
+	for _, r := range strings.ToLower(local) {
+		if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') || strings.ContainsRune(usernameSeparators, r) {
 			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune('-')
 		}
 	}
-	value := strings.Trim(b.String(), "-")
+	value := cutUsername(strings.TrimLeft(b.String(), usernameSeparators), maxDerivedUsername)
 	if len(value) < 3 {
-		value = "oidc-" + shortSubjectSuffix(subject)
-	}
-	return trimUsername(value, 30)
-}
-
-func trimUsername(value string, limit int) string {
-	if limit < 3 {
-		limit = 3
-	}
-	if len(value) <= limit {
-		return value
-	}
-	value = strings.Trim(value[:limit], "-")
-	if len(value) < 3 {
-		return value + strings.Repeat("0", 3-len(value))
+		return "oidc-" + identityHash[:8]
 	}
 	return value
+}
+
+// cutUsername cuts an ASCII username to limit and trims trailing separators.
+func cutUsername(value string, limit int) string {
+	if len(value) > limit {
+		value = value[:limit]
+	}
+	return strings.TrimRight(value, usernameSeparators)
+}
+
+// oidcFallbackName is "oidc-" and 24 characters of the identity hash: the last
+// username candidate and the local part of the fallback email.
+func oidcFallbackName(identityHash string) string {
+	return "oidc-" + identityHash[:24]
+}
+
+// oidcIdentityHash is the hex SHA-256 of provider:subject. Derived usernames and
+// the fallback email use its prefixes, so they differ for every identity.
+func oidcIdentityHash(provider, subject string) string {
+	sum := sha256.Sum256([]byte(provider + ":" + subject))
+	return hex.EncodeToString(sum[:])
 }
 
 func normalizeExternalEmail(email string) string {
@@ -847,35 +950,4 @@ func normalizeExternalEmail(email string) string {
 		return ""
 	}
 	return email
-}
-
-func oidcFallbackEmail(provider, subject string) string {
-	sum := sha256.Sum256([]byte(provider + ":" + subject))
-	return "oidc-" + hex.EncodeToString(sum[:])[:24] + "@oidc.local"
-}
-
-func shortSubjectSuffix(subject string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(subject) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		}
-		if b.Len() >= 8 {
-			break
-		}
-	}
-	if b.Len() == 0 {
-		return "external"
-	}
-	return b.String()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

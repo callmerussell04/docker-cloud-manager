@@ -2,19 +2,20 @@ package http
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/gin-gonic/gin"
 )
 
@@ -48,7 +49,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	var projectName, composeFile string
 	for {
 		part, err := reader.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -58,12 +59,12 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		name := part.FormName()
 		if name == "archive" {
 			if projectName == "" || part.FileName() == "" {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the request is rejected
 				httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 				return
 			}
 			projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), projectName, part.FileName(), composeFile, part)
-			_ = part.Close()
+			_ = part.Close() // read-only multipart part, already consumed
 			if err != nil {
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
@@ -75,7 +76,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 			return
 		}
 		value, err := readComposeFormField(part, 1<<20)
-		_ = part.Close()
+		_ = part.Close() // read-only multipart part; the read result decides the outcome
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
@@ -139,14 +140,14 @@ func pathUUID(c *gin.Context, name string) (uuid.UUID, bool) {
 	return id, true
 }
 
-func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, internalToken string, logger *slog.Logger) *gin.Engine {
+func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, streamHandler *StreamHandler, authenticator *internalauth.Authenticator, logger *slog.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(logging.RequestIDMiddleware())
 	r.Use(logging.AccessLogMiddleware(logger))
 	r.Use(logging.RecoveryMiddleware(logger))
 
 	internal := r.Group("/api/v1")
-	internal.Use(internalauth.Middleware(internalToken))
+	internal.Use(authenticator.Middleware())
 	internal.POST("/projects/compose", composeHandler.DeployCompose)
 	internal.POST("/projects/compose/git", composeHandler.DeployComposeFromGit)
 	internal.GET("/images/build/availability", buildHandler.BuildAvailability)
@@ -154,5 +155,9 @@ func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, int
 	internal.POST("/images/build/git", buildHandler.BuildImageFromGit)
 	internal.GET("/builds/:id/logs", buildHandler.BuildLogs)
 	internal.GET("/admin/builds/:id/logs", buildHandler.BuildLogs)
+	internal.GET("/containers/:id/logs/stream", streamHandler.StreamLogs)
+	internal.GET("/containers/:id/terminal", streamHandler.OpenTerminal)
+	internal.GET("/admin/containers/:id/logs/stream", streamHandler.StreamLogs)
+	internal.GET("/admin/containers/:id/terminal", streamHandler.OpenTerminal)
 	return r
 }

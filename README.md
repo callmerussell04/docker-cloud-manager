@@ -5,7 +5,7 @@
 **Self-hosted PaaS для запуска и управления контейнерными приложениями на одном сервере**
 
 [![Статус: в разработке](https://img.shields.io/badge/status-in%20development-f59e0b)](#статус-проекта)
-[![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
+[![Go 1.26.11](https://img.shields.io/badge/Go-1.26.11-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827)](frontend/package.json)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![Лицензия: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -37,7 +37,7 @@ Docker Cloud Manager (DCM) — открытая платформа в стиле
 ### Для пользователей
 
 - Запуск одиночных контейнеров из публичных образов Docker Hub.
-- Сборка собственных образов из `.zip`, `.tar.gz` или публичного HTTPS Git-репозитория.
+- Сборка собственных образов из `.zip`, `.tar`, `.tar.gz` или публичного HTTPS Git-репозитория.
 - Развёртывание многоконтейнерных приложений через Docker Compose из YAML-файла, архива или Git-репозитория.
 - Управление постоянными томами Docker, включая подключение томов DCM как `external: true` в Compose.
 - Публикация приложений на пользовательских поддоменах через Traefik.
@@ -64,7 +64,6 @@ flowchart LR
 
     Gateway --> SSO[SSO]
     Gateway --> Core[Core]
-    Gateway --> Telemetry[Telemetry]
 
     SSO --> SsoDB[(PostgreSQL)]
     Core --> CoreDB[(PostgreSQL)]
@@ -77,18 +76,18 @@ flowchart LR
     Builder --> MinIO
     Builder --> Registry[(Docker Registry)]
     Builder --> Core
-    Telemetry --> Docker
     Docker --> Apps
 ```
 
 | Компонент | Назначение |
 | --- | --- |
-| **Gateway** | Пограничная служба HTTP API, аутентификация запросов, авторизация и проксирование потоковых соединений |
-| **SSO** | Пользователи, роли, токены, разрешения, квоты и привязка учётных записей OIDC |
-| **Core** | Оркестрация Docker, состояние ресурсов, допуск операций, Compose, сборки, отчёты и аудит |
+| **Gateway** | Пограничная служба HTTP API, аутентификация запросов, авторизация и проксирование в Core, включая потоки журналов и терминала |
+| **SSO** | Пользователи, роли, токены, разрешения и привязка учётных записей OIDC |
+| **Core** | Оркестрация Docker, состояние ресурсов, квоты пользователей, допуск операций, Compose, сборки, журналы контейнеров и терминал в браузере, отчёты и аудит |
 | **Builder** | Обработчик RabbitMQ для сборки пользовательских образов через Kaniko |
-| **Telemetry** | Внутренняя служба журналов контейнеров и терминала в браузере |
 | **Frontend** | React SPA для пользовательской и административной панели |
+
+Длительные операции жизненного цикла выполняются асинхронно через сохраняемое состояние в базе данных и очереди RabbitMQ. PostgreSQL остаётся источником истины для пользователей и ресурсов, а ClickHouse служит аналитической моделью для отчётов.
 
 ## Технологии
 
@@ -104,15 +103,14 @@ flowchart LR
 
 ## Быстрый старт
 
+Ниже — кратчайший путь к работающему стеку на личной машине с доменом `localhost`. Для сервера, доступного извне, используйте полную [инструкцию по развёртыванию на одной машине](docs/deployment-single-vm.md): в ней описаны DNS, пул адресов Docker и сертификаты собственного центра сертификации.
+
 ### Требования
 
-- Linux-сервер с публичным IPv4 или IPv6.
-- Docker Engine и Docker Compose plugin.
-- Пользователь с доступом к Docker daemon.
+- Linux с Docker Engine 29.5.1 или новее, плагином Docker Compose и iptables backend Docker.
+- Пользователь с доступом к Docker daemon и правами `sudo`.
 - Свободный входящий TCP-порт `80`.
-- Домен панели (`DCM_HOST`) и wildcard DNS-запись для приложений (`*.BASE_DOMAIN`).
-
-Для локального ознакомления значения доменов по умолчанию используют `localhost`. Для доступного извне развёртывания заранее направьте основной и wildcard-домены на сервер.
+- `git` и `openssl`.
 
 ### 1. Клонируйте репозиторий
 
@@ -121,86 +119,75 @@ git clone https://github.com/callmerussell04/docker-cloud-manager.git
 cd docker-cloud-manager
 ```
 
-### 2. Создайте конфигурацию
+### 2. Подготовьте ядро
+
+Сетевая политика сборок требует фильтрации трафика Docker-мостов:
+
+```bash
+sudo modprobe br_netfilter
+sudo sysctl -w net.bridge.bridge-nf-call-iptables=1 net.bridge.bridge-nf-call-ip6tables=1
+```
+
+Как сохранить эти настройки после перезагрузки, описано в [инструкции по развёртыванию](docs/deployment-single-vm.md#3-подготовьте-ядро-и-docker).
+
+### 3. Создайте конфигурацию
 
 ```bash
 cp backend/.env.example backend/.env
+chmod 600 backend/.env
 ```
 
-Откройте `backend/.env` и:
+Откройте `backend/.env` и замените каждое значение `change_me_*` отдельным случайным секретом (`openssl rand -hex 32`). `GATEWAY_SERVICE_TOKEN`, `CORE_SERVICE_TOKEN` и `BUILDER_SERVICE_TOKEN` должны различаться, а `OBJECT_STORAGE_SECRET_KEY` — совпадать с `MINIO_ROOT_PASSWORD`. Задайте `SSO_ADMIN_EMAIL` и надёжный `SSO_ADMIN_PASSWORD`.
 
-- замените все значения `change_me_*` уникальными случайными секретами;
-- задайте `SSO_ADMIN_EMAIL` и безопасный `SSO_ADMIN_PASSWORD`;
-- для внешнего сервера настройте `DCM_HOST`, `BASE_DOMAIN`, `FRONTEND_API_URL`, `CORS_ALLOWED_ORIGINS` и `GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS`;
-- оставьте `COOKIE_SECURE=false` только для текущего HTTP-сценария.
+### 4. Создайте сертификаты реестра образов
 
-### 3. Проверьте и запустите стек
+Внутренний реестр образов работает только по TLS. Для личной машины подойдут одноразовые сертификаты:
+
+```bash
+cd backend
+make dev-certs
+cd ..
+```
+
+Команда (нужен `sudo`) создаёт сертификаты в `/etc/dcm/registry` (значение `REGISTRY_CERTS_DIR` в шаблоне), устанавливает CA для Docker и добавляет имя `registry` в `/etc/hosts`. Не используйте эти сертификаты на рабочем сервере.
+
+### 5. Запустите стек
 
 ```bash
 docker compose --env-file backend/.env config --quiet
 docker compose --env-file backend/.env up -d --build
 ```
 
-Миграции PostgreSQL и ClickHouse запускаются автоматически как one-shot сервисы перед стартом зависимых компонентов.
+Первая сборка занимает несколько минут. Миграции PostgreSQL и ClickHouse запускаются автоматически перед зависимыми службами.
 
-### 4. Проверьте состояние
+### 6. Проверьте состояние
 
 ```bash
-docker compose --env-file backend/.env ps
+docker compose --env-file backend/.env ps --all
 curl -fsS http://localhost/health/live
 curl -fsS http://localhost/health/ready
 ```
 
-Откройте `http://<DCM_HOST>/` и войдите с помощью `SSO_ADMIN_USERNAME` и `SSO_ADMIN_PASSWORD` из `backend/.env`.
-
-Подробная настройка DNS и пулов адресов Docker описана в [инструкции по развёртыванию на одной машине](docs/deployment-single-vm.md).
+Откройте `http://localhost/` и войдите с `SSO_ADMIN_USERNAME` и `SSO_ADMIN_PASSWORD` из `backend/.env`. Если что-то не запустилось, начните с [диагностики](docs/troubleshooting.md).
 
 ## Разработка
 
-### Backend
-
-Backend-команды запускаются из `backend/`:
+Команды backend выполняются из `backend/`, frontend — из `frontend/`:
 
 ```bash
 cd backend
-
-go mod tidy
-go build -o bin/ ./cmd/...
-GOCACHE=/tmp/go-build-cache go test ./...
-GOCACHE=/tmp/go-build-cache go vet ./...
-make lint
+make verify   # форматирование, генерация, go mod tidy, сборка, vet, lint, быстрые тесты с race detector
+make test     # полный набор с временными PostgreSQL, ClickHouse, RabbitMQ и MinIO в Docker
 ```
-
-Полный набор интеграционных тестов с временной инфраструктурой:
-
-```bash
-cd backend
-make test
-```
-
-### Frontend
 
 ```bash
 cd frontend
 npm ci
 VITE_API_URL=http://localhost/api/v1 VITE_BASE_DOMAIN=localhost npm run dev
+npm run lint && npm run build && npm test
 ```
 
-Проверка и сборка:
-
-```bash
-cd frontend
-npm run lint
-npm run build
-```
-
-### Весь стек
-
-Из корня репозитория:
-
-```bash
-docker compose --env-file backend/.env up -d --build
-```
+Инструменты, генерация кода, тесты, CI, закреплённые версии и проверка уязвимостей описаны в [руководстве разработчика](docs/development.md). Устройство клиентской части — в [`frontend/README.md`](frontend/README.md).
 
 ## Структура репозитория
 
@@ -209,10 +196,10 @@ docker compose --env-file backend/.env up -d --build
 ├── backend/
 │   ├── api/             # OpenAPI и protobuf-контракты
 │   ├── cmd/             # Точки входа служб
-│   ├── internal/        # Ограниченные контексты и слои чистой архитектуры
+│   ├── internal/        # Ограниченные контексты и общие пакеты (platform)
 │   ├── migrations/      # Миграции PostgreSQL и ClickHouse
-│   ├── pkg/             # Общие пакеты серверной части
-│   └── tests/           # Тесты серверной части
+│   └── tests/integration/ # Межмодульные тесты; модульные лежат рядом с кодом
+├── deployment/registry/ # Образы и скрипты изоляции реестра и сети сборок
 ├── frontend/
 │   └── src/             # React SPA
 ├── docs/                # Документация проекта и развёртывания
@@ -225,24 +212,27 @@ docker compose --env-file backend/.env up -d --build
 > [!WARNING]
 > Команда `docker compose --env-file backend/.env down -v` удаляет постоянные тома с базами данных, объектным хранилищем, реестром образов и очередями. Для обычной остановки используйте `docker compose --env-file backend/.env down`.
 
-- Текущий Compose публикует внешний трафик по HTTP на порту `80`. Перед production-использованием необходимо отдельно настроить HTTPS и secure cookies.
+- Текущий Compose публикует внешний трафик по HTTP на порту `80`. HTTPS штатно не поддерживается; не размещайте важные данные на сервере, доступном из недоверенной сети.
 - Docker создаёт отдельную bridge-сеть для каждого пользователя. Перед эксплуатацией настройте `default-address-pools` в Docker daemon, чтобы избежать исчерпания подсетей.
 - Административные интерфейсы RabbitMQ, MinIO, Registry и Traefik не должны публиковаться наружу; в текущем Compose их порты привязаны к `127.0.0.1`.
-- Данные сохраняются в Docker volumes после обычного `docker compose down`.
+- Данные сохраняются в Docker volumes после обычного `docker compose down`. Обновление и резервное копирование описаны в [руководстве по эксплуатации](docs/operations.md), модель безопасности — в [отдельном документе](docs/security-model.md).
 
 ## Документация
 
 - [Оглавление документации](docs/README.md)
 - [Развёртывание на одной машине](docs/deployment-single-vm.md)
+- [Обновление и резервное копирование](docs/operations.md)
 - [Руководство пользователя](docs/user-guide.md)
 - [Руководство администратора](docs/admin-guide.md)
+- [Справочник конфигурации](docs/configuration.md)
 - [Диагностика](docs/troubleshooting.md)
 - [Руководство по API](docs/api-guide.md)
+- [Руководство разработчика](docs/development.md)
 - [HTTP API — OpenAPI 3.0](backend/api/gateway/openapi.yml)
 
 ## Статус проекта
 
-Docker Cloud Manager находится в разработке. Текущее развёртывание рассчитано на один сервер и HTTP-трафик. Перед использованием с важными данными самостоятельно оцените риски, настройте HTTPS и организуйте резервное копирование.
+Docker Cloud Manager находится в разработке. Обратная совместимость конфигурации, API и схемы данных пока не гарантируется. Текущее развёртывание рассчитано на один сервер и HTTP-трафик. Перед использованием с важными данными самостоятельно оцените риски и организуйте [резервное копирование](docs/operations.md#резервное-копирование).
 
 ## Лицензия
 

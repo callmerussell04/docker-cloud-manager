@@ -9,45 +9,43 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/cleanupctx"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildobjects"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
 )
 
 type BuildRepository interface {
+	AcquireCapacityLock(ctx context.Context) (func(), error)
+	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CountActive(ctx context.Context) (int, error)
 	Save(ctx context.Context, b model.Build) error
 	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
-	StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error)
 }
 
-type activeBuildCounter interface {
-	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
-}
-
 type activeSystemBuildCounter interface {
 	CountActive(ctx context.Context) (int, error)
 }
 
-type buildCapacityLockRepository interface {
-	AcquireCapacityLock(ctx context.Context) (func(), error)
-}
-
-type buildContainerReservationRepository interface {
+type BuildContainerReservationRepository interface {
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
@@ -56,24 +54,50 @@ type BuildImageRepository interface {
 	Save(ctx context.Context, img model.Image) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
-	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetReplacementImageBytes(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
+	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeBytes int64, digest *string) ([]model.Image, error)
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
 type BuildVolumeDiskRepository interface {
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
+// BuildObjectStore stages build archives and logs. StatObject sizes staged
+// archives so their quota reservation reflects the stored bytes.
 type BuildObjectStore interface {
 	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
+	StatObject(ctx context.Context, objectKey string) (objectstorage.ObjectInfo, error)
 }
 
-type buildObjectStatter interface {
-	StatObject(ctx context.Context, objectKey string) (objectstorage.ObjectInfo, error)
+// BuildImageMetadataAPI reads built image metadata. Builds never delete
+// manifests directly; revocation queues the fenced Registry cleanup.
+type BuildImageMetadataAPI interface {
+	GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error)
+}
+
+// BuildImageCache removes an image a successful rebuild replaced from the
+// Docker cache, best effort and without force.
+type BuildImageCache interface {
+	RemoveImage(ctx context.Context, imageID string, force bool) error
+}
+
+// BuildRegistryAuthorizer claims builds with a repository-scoped Registry
+// credential and revokes that credential when the build ends. A claim is
+// refused, leaving the build pending, while maxRunning builds already run.
+type BuildRegistryAuthorizer interface {
+	ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration, maxRunning int) (model.Build, bool, error)
+	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition) error
+}
+
+// BuildCapacityLock serialises the disk quota check at build completion with
+// every other admission for the same owner, so two completions, or a
+// completion and a volume create, cannot both take the last of the quota.
+type BuildCapacityLock interface {
+	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
 
 type BuildDeploymentCanceler interface {
@@ -110,32 +134,51 @@ type BuildInitResult struct {
 }
 
 type BuildService struct {
-	repo         BuildRepository
-	imageRepo    BuildImageRepository
-	volumeRepo   BuildVolumeDiskRepository
-	registryAPI  ImageRegistryAPI
-	users        UserInfoProvider
-	cfg          BuildConfigProvider
-	objectStore  BuildObjectStore
-	deployments  BuildDeploymentCanceler
-	staged       StagedObjectRepository
-	containers   buildContainerReservationRepository
-	diskMetrics  HostDiskMetricsProvider
-	hostMetrics  HostMetricsProvider
-	hostDiskPath string
-	logger       *slog.Logger
+	repo           BuildRepository
+	imageRepo      BuildImageRepository
+	volumeRepo     BuildVolumeDiskRepository
+	registryAPI    BuildImageMetadataAPI
+	imageCache     BuildImageCache
+	quotas         UserQuotaProvider
+	cfg            BuildConfigProvider
+	objectStore    BuildObjectStore
+	deployments    BuildDeploymentCanceler
+	staging        *stagedsource.Staging
+	containers     BuildContainerReservationRepository
+	capacityLock   BuildCapacityLock
+	diskMetrics    HostDiskMetricsProvider
+	hostMetrics    HostMetricsProvider
+	dockerDataPath string
+	registryAuth   BuildRegistryAuthorizer
+	logger         *slog.Logger
 }
 
+// BuildServiceDeps requires admission, persistence and Registry authorization
+// dependencies. ObjectStore and Deployments are optional; deployments may be
+// wired after construction to resolve the BuildService/Compose orchestrator cycle.
 type BuildServiceDeps struct {
+	Repository BuildRepository
+	Images     BuildImageRepository
+	Registry   BuildImageMetadataAPI
+	// Docker removes replaced images from the local cache.
+	Docker        BuildImageCache
+	Quotas        UserQuotaProvider
+	Logger        *slog.Logger
 	VolumeRepo    BuildVolumeDiskRepository
 	Config        BuildConfigProvider
 	ObjectStore   BuildObjectStore
 	Deployments   BuildDeploymentCanceler
 	StagedObjects StagedObjectRepository
-	Containers    buildContainerReservationRepository
-	DiskMetrics   HostDiskMetricsProvider
-	HostMetrics   HostMetricsProvider
-	HostDiskPath  string
+	Containers    BuildContainerReservationRepository
+	// CapacityLock is the owner capacity lock the completion's disk quota
+	// check holds.
+	CapacityLock BuildCapacityLock
+	DiskMetrics  HostDiskMetricsProvider
+	HostMetrics  HostMetricsProvider
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	RegistryAuth   BuildRegistryAuthorizer
 }
 
 type createBuildJobInput struct {
@@ -148,25 +191,63 @@ type createBuildJobInput struct {
 	RequestID          string
 	ProjectID          *uuid.UUID
 	ProjectServiceName string
+	Source             model.BuildSource
 }
 
-func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps BuildServiceDeps) *BuildService {
-	return &BuildService{
-		repo:         repo,
-		imageRepo:    imageRepo,
-		volumeRepo:   deps.VolumeRepo,
-		registryAPI:  registryAPI,
-		users:        users,
-		cfg:          deps.Config,
-		objectStore:  deps.ObjectStore,
-		deployments:  deps.Deployments,
-		staged:       deps.StagedObjects,
-		containers:   deps.Containers,
-		diskMetrics:  deps.DiskMetrics,
-		hostMetrics:  deps.HostMetrics,
-		hostDiskPath: deps.HostDiskPath,
-		logger:       logging.WithComponent(logger, "build_service"),
+func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"images", deps.Images},
+		{"registry", deps.Registry}, {"docker", deps.Docker},
+		{"quotas", deps.Quotas},
+		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
+		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
+		{"capacity lock", deps.CapacityLock},
+		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
+		{"registry authorization", deps.RegistryAuth},
 	}
+	for _, dependency := range required {
+		if nilcheck.IsNil(dependency.value) {
+			return nil, fmt.Errorf("build service: %s is required", dependency.name)
+		}
+	}
+	dockerDataPath := deps.DockerDataPath
+	if dockerDataPath == "" {
+		dockerDataPath = "/"
+	}
+	staging, err := stagedsource.New(stagedsource.Deps{
+		Repository:     deps.StagedObjects,
+		CapacityLock:   deps.CapacityLock,
+		Quotas:         deps.Quotas,
+		ReservedDisk:   NewReservedDiskReader(deps.Images, deps.VolumeRepo),
+		DiskMetrics:    deps.DiskMetrics,
+		DockerDataPath: deps.DockerDataPath,
+		Config:         deps.Config,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build service: %w", err)
+	}
+	return &BuildService{
+		repo:           deps.Repository,
+		imageRepo:      deps.Images,
+		registryAPI:    deps.Registry,
+		imageCache:     deps.Docker,
+		quotas:         deps.Quotas,
+		registryAuth:   deps.RegistryAuth,
+		volumeRepo:     deps.VolumeRepo,
+		cfg:            deps.Config,
+		objectStore:    deps.ObjectStore,
+		deployments:    deps.Deployments,
+		staging:        staging,
+		containers:     deps.Containers,
+		capacityLock:   deps.CapacityLock,
+		diskMetrics:    deps.DiskMetrics,
+		hostMetrics:    deps.HostMetrics,
+		dockerDataPath: dockerDataPath,
+		logger:         logging.WithComponent(deps.Logger, "build_service"),
+	}, nil
 }
 
 func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
@@ -174,149 +255,65 @@ func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
 }
 
 func (s *BuildService) ensureImageBuildsEnabled() error {
-	if s.cfg != nil && !s.cfg.Get().ImageBuildsEnabled {
+	if !s.cfg.Get().ImageBuildsEnabled {
 		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
 	return nil
 }
 
-func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	return usedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
+func (s *BuildService) getUserReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	return reservedDiskBytes(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
-func (s *BuildService) ensureHostDiskFloor() error {
-	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes)
-}
-
-func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
-	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
-}
-
-func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
+// admitBuild checks the host memory and CPU one more build slot reserves, the
+// owner's disk quota and the plain host disk floor. Builds do not count
+// against the owner's memory and CPU quotas, and a build queued behind
+// MaxConcurrentBuilds others reserves nothing more. The disk a build slot may
+// write is held at the claim (StartBuildRecord), so a build the disk cannot
+// hold yet is accepted and waits. The caller holds the capacity lock.
+func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
-	reserved := int64(0)
-	reservedCPU := int64(0)
-	if s.containers != nil {
-		containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to calculate container reserved memory", "error", err)
-			return apperrors.ErrInternal
-		}
-		reserved += containerReserved
-		containerReservedCPU, err := s.containers.GetTotalSystemReservedCPU(ctx)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to calculate container reserved cpu", "error", err)
-			return apperrors.ErrInternal
-		}
-		reservedCPU += containerReservedCPU
+	sources := admissionSources{
+		quotas:         s.quotas,
+		system:         s.containers,
+		builds:         s.repo,
+		images:         s.imageRepo,
+		volumes:        s.volumeRepo,
+		hostMetrics:    s.hostMetrics,
+		diskMetrics:    s.diskMetrics,
+		dockerDataPath: s.dockerDataPath,
+		logger:         s.logger,
 	}
-	if counter, ok := s.repo.(activeSystemBuildCounter); ok {
-		activeBuilds, err := counter.CountActive(ctx)
-		if err != nil {
-			return err
-		}
-		reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
-		reservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
-	}
-	if err := ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build"); err != nil {
-		return err
-	}
-	return ensureHostCPUCapacity(ctx, s.hostMetrics, cfg, reservedCPU, buildCPUMillicores(cfg), s.logger, "build")
+	return sources.admit(ctx, ownerID, admissionRequest{builds: 1}, cfg, "build")
 }
 
-func (s *BuildService) acquireBuildCapacityLock(ctx context.Context) (func(), error) {
-	lockRepo, ok := s.repo.(buildCapacityLockRepository)
-	if !ok {
-		return nil, nil
-	}
-	return lockRepo.AcquireCapacityLock(ctx)
-}
-
-func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
-	cfg := s.buildConfig()
-	if cfg.MaxQueuedBuildsPerUser <= 0 {
-		return nil
-	}
-	counter, ok := s.repo.(activeBuildCounter)
-	if !ok {
-		return nil
-	}
-	count, err := counter.CountActiveByOwner(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	if count >= cfg.MaxQueuedBuildsPerUser {
-		return apperrors.ErrLimitExceeded
-	}
-	return nil
-}
-
+// reserveStagedBuildArchive reserves a staged build archive by the one staged
+// disk rule. The caller holds no capacity lock.
 func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
-	if s.staged == nil || objectKey == "" {
-		return nil
-	}
-	if bytesReserved < 0 {
-		bytesReserved = 0
-	}
-	cfg := s.buildConfig()
-	if err := s.ensureUserStagedDiskQuota(ctx, ownerID, bytesReserved); err != nil {
-		return err
-	}
-	return s.staged.Reserve(ctx, model.StagedObjectReservation{
-		ID:            uuid.New(),
-		OwnerID:       ownerID,
-		ObjectKey:     objectKey,
-		Kind:          model.StagedObjectKindBuildArchive,
-		BytesReserved: bytesReserved,
-	}, cfg.MaxStagedSourceBytesPerUser)
-}
-
-func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
-	if s.users == nil || s.staged == nil {
-		return nil
-	}
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	stagedBytes, err := s.staged.ActiveBytesByOwner(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB += stagedBytesToMB(stagedBytes + incomingBytes)
-	if usedMB > user.QuotaDiskMB {
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	}
-	return nil
+	return s.staging.Reserve(ctx, stagedsource.Reservation{
+		OwnerID:   ownerID,
+		ObjectKey: objectKey,
+		Kind:      model.StagedObjectKindBuildArchive,
+		Bytes:     bytesReserved,
+	})
 }
 
 func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, objectKey string) {
-	if s.staged == nil || s.objectStore == nil || objectKey == "" {
+	if s.objectStore == nil || objectKey == "" {
 		return
 	}
-	statter, ok := s.objectStore.(buildObjectStatter)
-	if !ok {
-		return
-	}
-	info, err := statter.StatObject(ctx, objectKey)
+	info, err := s.objectStore.StatObject(ctx, objectKey)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "error", err)
 		return
 	}
-	if err := s.staged.UpdateBytes(ctx, objectKey, info.Size); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.staging.Resize(ctx, objectKey, info.Size); err != nil {
 		s.logger.WarnContext(ctx, "failed to update staged build archive reservation", "error", err)
 	}
 }
 
 func (s *BuildService) releaseStagedBuildArchive(ctx context.Context, objectKey string) {
-	if s.staged == nil || objectKey == "" {
-		return
-	}
-	if err := s.staged.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.staging.Release(ctx, objectKey); err != nil {
 		s.logger.WarnContext(ctx, "failed to release staged build archive reservation", "error", err)
 	}
 }
@@ -358,11 +355,7 @@ func (s *BuildService) ReserveBuildArchive(ctx context.Context, archiveObjectKey
 	if s.objectStore == nil {
 		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
-	statter, ok := s.objectStore.(buildObjectStatter)
-	if !ok {
-		return nil
-	}
-	info, err := statter.StatObject(ctx, archiveObjectKey)
+	info, err := s.objectStore.StatObject(ctx, archiveObjectKey)
 	if err != nil {
 		return err
 	}
@@ -384,7 +377,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().MaxArchiveSizeBytes); err != nil {
+	if err := s.staging.CheckHostDiskFloor(s.buildConfig().MaxArchiveSizeBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -414,17 +407,17 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	reserved := true
 	releaseReservation := func() {
 		if reserved {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			cleanupCtx, cancel := cleanupctx.Detached(ctx)
 			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
 			cancel()
 			reserved = false
 		}
 	}
 
-	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
+	limitedArchive := stagedsource.CappedReader(input.Archive, cfg.MaxArchiveSizeBytes)
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		if errors.Is(err, apperrors.ErrBadRequest) {
@@ -434,10 +427,19 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	}
 	s.updateStagedBuildArchiveBytes(ctx, archiveObjectKey)
 
-	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	buildID, _, err := s.createBuildJob(ctx, createBuildJobInput{
+		Tag:              input.Tag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       input.ContextDir,
+		Dockerfile:       input.Dockerfile,
+		BuildArgs:        input.BuildArgs,
+		RequestID:        logging.RequestIDFromContext(ctx),
+		Source:           model.BuildSource{Kind: model.BuildSourceArchive, Location: input.ArchiveName},
+	})
 	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
@@ -467,7 +469,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().GitMaxRepositoryBytes); err != nil {
+	if err := s.staging.CheckHostDiskFloor(s.buildConfig().GitMaxRepositoryBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -499,7 +501,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }() // best-effort temporary directory cleanup; failure is not actionable
 
 	repoDir := filepath.Join(tmpDir, "repo")
 	repoInfo, err := gitsource.Clone(ctx, gitsource.CloneRequest{
@@ -533,7 +535,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	reserved := true
 	releaseReservation := func() {
 		if reserved {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			cleanupCtx, cancel := cleanupctx.Detached(ctx)
 			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
 			cancel()
 			reserved = false
@@ -545,20 +547,29 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		releaseReservation()
 		return BuildInitResult{}, err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }() // read-only stream; close failure is not actionable
 
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
 	}
 
-	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	buildID, _, err := s.createBuildJob(ctx, createBuildJobInput{
+		Tag:              input.Tag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       contextDir,
+		Dockerfile:       dockerfile,
+		BuildArgs:        input.BuildArgs,
+		RequestID:        logging.RequestIDFromContext(ctx),
+		Source:           model.BuildSource{Kind: model.BuildSourceGit, Location: strings.TrimSpace(input.RepoURL), Ref: strings.TrimSpace(input.Ref)},
+	})
 	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
@@ -590,27 +601,13 @@ func (s *BuildService) OpenBuildLogs(ctx context.Context, buildID uuid.UUID) (io
 	if err != nil {
 		return nil, err
 	}
-	if build.LogFilePath == "" {
+	if build.LogObjectKey == "" {
 		return nil, apperrors.ErrNotFound
 	}
-	return s.objectStore.OpenObject(ctx, build.LogFilePath)
+	return s.objectStore.OpenObject(ctx, build.LogObjectKey)
 }
 
 func (s *BuildService) buildConfig() config.SystemConfig {
-	if s.cfg == nil {
-		return config.SystemConfig{
-			ImageBuildsEnabled:     true,
-			GitSourcesEnabled:      true,
-			MaxArchiveSizeBytes:    50 << 20,
-			GitCloneTimeoutSeconds: 60,
-			GitMaxRepositoryBytes:  200 * 1024 * 1024,
-			MaxQueuedBuildsPerUser: 10,
-			CPUOvercommitFactor:    4,
-			ContainerCPUPeriod:     100000,
-			BuildCPUQuota:          100000,
-			BuildCPUPeriod:         100000,
-		}
-	}
 	return s.cfg.Get()
 }
 
@@ -629,30 +626,18 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "build archive and log object keys are required")
 	}
 
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	unlock, err := s.acquireBuildCapacityLock(ctx)
+	unlock, err := s.repo.AcquireCapacityLock(ctx)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 	if unlock != nil {
 		defer unlock()
 	}
-	if err := s.ensureBuildQueueLimit(ctx, ownerID); err != nil {
+	if err := checkQueuedLimit(ctx, ownerID, s.repo.CountActiveByOwner, 1, s.buildConfig().MaxQueuedBuildsPerUser, apperrors.LimitQueuedBuilds); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	if err := s.ensureBuildHostCapacity(ctx); err != nil {
+	if err := s.admitBuild(ctx, ownerID); err != nil {
 		return uuid.Nil, uuid.Nil, err
-	}
-
-	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	if usedMB >= user.QuotaDiskMB {
-		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 
 	normalizedTag := imageref.NormalizeTag(input.Tag)
@@ -678,12 +663,14 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		return uuid.Nil, uuid.Nil, fmt.Errorf("failed to marshal build queue message: %w", err)
 	}
 
+	// The build pushes to a Registry tag of its own image record, so the image
+	// available under the same user tag is never overwritten.
 	img := model.Image{
-		ID:      imageID,
-		OwnerID: ownerID,
-		Tag:     normalizedTag,
-		SizeMB:  0,
-		Status:  model.ImageStatusBuilding,
+		ID:          imageID,
+		OwnerID:     ownerID,
+		Tag:         normalizedTag,
+		RegistryTag: imageID.String(),
+		Status:      model.ImageStatusBuilding,
 	}
 	build := model.Build{
 		ID:                 buildID,
@@ -691,10 +678,11 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		OwnerID:            ownerID,
 		ProjectID:          input.ProjectID,
 		ProjectServiceName: input.ProjectServiceName,
+		Source:             input.Source,
 		Status:             model.BuildStatusPending,
-		LogFilePath:        input.LogObjectKey,
+		LogObjectKey:       input.LogObjectKey,
 		ArchiveObjectKey:   input.ArchiveObjectKey,
-		StartedAt:          now,
+		CreatedAt:          now,
 	}
 	outbox := model.BuildQueueOutbox{
 		ID:         uuid.New(),
@@ -713,8 +701,14 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	return buildID, imageID, nil
 }
 
+// StartBuildRecord claims a pending build for a Builder. Builds running at once
+// stay within the claim cap however many Builders run: max_concurrent_builds,
+// or fewer when the disk cannot hold that many build slots (buildClaimCap).
+// Over the cap the build is returned unclaimed and still pending, and the
+// Builder retries.
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
-	b, started, err := s.repo.StartBuild(ctx, buildID)
+	cfg := s.buildConfig()
+	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(cfg.MaxBuildTimeMinutes)*time.Minute, s.readClaimCap(ctx, buildID, cfg))
 	if err != nil {
 		return model.Build{}, false, err
 	}
@@ -723,6 +717,23 @@ func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) 
 	}
 	s.logger.InfoContext(ctx, "build record started", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	return b, true, nil
+}
+
+// readClaimCap reads Core's host disk and returns the cap the next claim
+// gets. Core's disk is the disk builds write only for a co-located Builder
+// (ADR 0003). A failed disk read is logged and gives a cap of zero: the claim
+// is refused and the build stays pending, because an error to Builder could
+// dead-letter it.
+func (s *BuildService) readClaimCap(ctx context.Context, buildID uuid.UUID, cfg config.SystemConfig) int {
+	if cfg.HostMinFreeDiskBytes <= 0 {
+		return buildClaimCap(cfg, 0)
+	}
+	stats, err := s.diskMetrics.GetDiskUsage(s.dockerDataPath)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "build claim refused: failed to read host disk", "build_id", buildID, "error", err)
+		return 0
+	}
+	return buildClaimCap(cfg, stats.FreeBytes)
 }
 
 func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error {
@@ -736,20 +747,62 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
-	if b.Status == model.BuildStatusRunning {
-		if img, err := s.imageRepo.GetByID(ctx, b.ImageID); err == nil {
-			s.cleanupBuiltImageManifestForImage(ctx, b.ID, img)
-		} else if !errors.Is(err, apperrors.ErrNotFound) {
-			s.logger.WarnContext(ctx, "failed to fetch running build image for cancel cleanup", "build_id", buildID, "image_id", b.ImageID, "error", err)
-		}
+	return s.cancelBuild(ctx, b)
+}
+
+// cancelBuild runs the cancellation path for an active build: Registry
+// revocation with tag deletion, the canceled status and image row removal in
+// one transaction, staged archive cleanup and the Compose cascade.
+func (s *BuildService) cancelBuild(ctx context.Context, b model.Build) error {
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
+		return err
 	}
-	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	s.logger.WarnContext(ctx, "build record cancelled", "build_id", b.ID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled); err != nil {
 		return err
 	}
 	s.cleanupBuildArchive(ctx, b)
 	s.cancelDeploymentForBuild(ctx, b)
 	return nil
+}
+
+// StopBuildForResourceExhaustion is the memory pressure worker's stop of a
+// running build. Core never reaches the build container (ADR 0003): it
+// records the build failed_resource_exhausted, and Builder's status poll
+// stops Kaniko and reports the same status, which completion then leaves
+// unchanged. The status is written first, then the Registry credential is
+// revoked with tag deletion and the staged archive is cleaned up. Unlike
+// cancellation, the stop does not cascade to a Compose deployment, which
+// fails as for any failed build. A build that is not running, or that
+// reaches another terminal status first, is left alone. It reports whether
+// the build was stopped. A failed revocation is logged and still counts as
+// a stop, because Builder's completion revokes the credential again.
+func (s *BuildService) StopBuildForResourceExhaustion(ctx context.Context, buildID uuid.UUID) (bool, error) {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return false, fmt.Errorf("read build to stop: %w", err)
+	}
+	if b.Status != model.BuildStatusRunning {
+		return false, nil
+	}
+	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusFailedResourceExhausted); err != nil {
+		return false, fmt.Errorf("record build stopped for resource exhaustion: %w", err)
+	}
+	// The write is guarded by status, so a completion that landed first
+	// keeps its outcome; read back which one was recorded.
+	recorded, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return false, fmt.Errorf("read stopped build status: %w", err)
+	}
+	if recorded.Status != model.BuildStatusFailedResourceExhausted {
+		return false, nil
+	}
+	s.logger.WarnContext(ctx, "build record stopped for resource exhaustion", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
+		s.logger.WarnContext(ctx, "failed to revoke stopped build registry credential", "build_id", buildID, "error", err)
+	}
+	s.cleanupBuildArchive(ctx, b)
+	return true, nil
 }
 
 func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Build) {
@@ -760,7 +813,7 @@ func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Buil
 	if s.objectStore == nil {
 		return
 	}
-	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
 	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "error", err)
@@ -781,10 +834,23 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err != nil {
 		return err
 	}
+	// A build that already ended without an image (failed or canceled) has
+	// no image reference left to compare.
+	imageGone := b.ImageID == uuid.Nil && model.IsBuildTerminalStatus(b.Status)
+	if b.ImageID != imageID && !imageGone {
+		return apperrors.ErrForbidden
+	}
+	// A redelivered success after cancellation or failure still queues cleanup
+	// of the manifest it may have pushed.
+	failedEarlier := model.IsBuildTerminalStatus(b.Status) && b.Status != model.BuildStatusSuccess
+	pushedTag := model.PushedTagDisposition(status)
+	if failedEarlier {
+		pushedTag = model.RegistryTagDelete
+	}
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, pushedTag); err != nil {
+		return err
+	}
 	if model.IsBuildTerminalStatus(b.Status) {
-		if b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
-			s.cleanupBuiltImageManifest(ctx, b)
-		}
 		s.cleanupBuildArchive(ctx, b)
 		return nil
 	}
@@ -805,88 +871,95 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return err
 	}
 
-	baseName, version := parseImageTag(img.Tag)
+	baseName, _ := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, img.RegistryTag)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
+		if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); revokeErr != nil {
+			return revokeErr
+		}
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
 
-	sizeMB := int(sizeBytes / (1024 * 1024))
-	if sizeMB == 0 {
-		sizeMB = 1
+	var recordedDigest *string
+	if digest != "" {
+		recordedDigest = &digest
 	}
-
-	user, err := s.users.GetUser(ctx, img.OwnerID)
+	replaced, admitted, err := s.recordBuiltImage(ctx, b.ID, img, sizeBytes, recordedDigest)
 	if err != nil {
 		return err
 	}
-	usedMB, err := s.getUserUsedDiskMB(ctx, img.OwnerID)
-	if err != nil {
-		return err
-	}
-	replacedMB, err := s.imageRepo.GetReplacementImageSizeMB(ctx, img.OwnerID, img.Tag, img.ID)
-	if err != nil {
-		return err
-	}
-	usedMB -= replacedMB
-	if usedMB < 0 {
-		usedMB = 0
-	}
-
-	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
-		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
-			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
+	if !admitted {
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
+			return err
 		}
-		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 		s.cleanupBuildArchive(ctx, b)
 		s.cancelDeploymentForBuild(ctx, b)
-		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
+		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 		return nil
 	}
-
-	if err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB); err != nil {
-		return err
-	}
+	s.removeReplacedImages(ctx, replaced)
 	s.cleanupBuildArchive(ctx, b)
-	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
+	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 	return nil
 }
 
-func (s *BuildService) cleanupBuiltImageManifest(ctx context.Context, build model.Build) {
-	if s.registryAPI == nil {
-		return
-	}
-	img, err := s.imageRepo.GetByID(ctx, build.ImageID)
+// recordBuiltImage decides whether the successfully built image fits the
+// owner's disk quota and records the outcome: the image size and success
+// (admitted, with the images the rebuild replaced), or the quota-exceeded
+// failure. The owner capacity lock covers the quota read, the
+// reserved disk read, the replaced image read and the write, so two
+// completions, or a completion and a volume create, cannot both take the last
+// of the quota. A rebuild does not count the image it replaces. No Registry,
+// Docker or object storage call runs under the lock.
+func (s *BuildService) recordBuiltImage(ctx context.Context, buildID uuid.UUID, img model.Image, sizeBytes int64, digest *string) ([]model.Image, bool, error) {
+	unlock, err := s.capacityLock.AcquireOwnerCapacityLock(ctx, img.OwnerID)
 	if err != nil {
-		s.logger.WarnContext(ctx, "failed to fetch canceled build image for registry cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
-		return
+		return nil, false, err
 	}
-	s.cleanupBuiltImageManifestForImage(ctx, build.ID, img)
+	defer unlock()
+
+	quota, err := s.quotas.EffectiveUserQuota(ctx, img.OwnerID)
+	if err != nil {
+		return nil, false, err
+	}
+	usedBytes, err := s.getUserReservedDiskBytes(ctx, img.OwnerID)
+	if err != nil {
+		return nil, false, err
+	}
+	replacedBytes, err := s.imageRepo.GetReplacementImageBytes(ctx, img.OwnerID, img.Tag, img.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	usedBytes = max(usedBytes-replacedBytes, 0)
+
+	if usedBytes+sizeBytes > quota.DiskBytes() {
+		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, img.ID, model.BuildStatusFailedQuotaExceeded); err != nil {
+			return nil, false, fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
+		}
+		return nil, false, nil
+	}
+	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, img.ID, model.BuildStatusSuccess, sizeBytes, digest)
+	if err != nil {
+		return nil, false, err
+	}
+	return replaced, true, nil
 }
 
-func (s *BuildService) cleanupBuiltImageManifestForImage(ctx context.Context, buildID uuid.UUID, img model.Image) {
-	if s.registryAPI == nil {
-		return
+// removeReplacedImages removes the images a successful rebuild replaced from
+// the Docker cache. Their Registry manifests are already queued for cleanup.
+// Docker refuses an image a container still uses; that refusal is expected.
+func (s *BuildService) removeReplacedImages(ctx context.Context, replaced []model.Image) {
+	registryURL := s.buildConfig().RegistryPublicURL
+	for _, img := range replaced {
+		baseName, _ := parseImageTag(img.Tag)
+		reference := customImageFullTag(registryURL, img.OwnerID, baseName, img.RegistryTag)
+		if err := s.imageCache.RemoveImage(ctx, reference, false); err != nil {
+			s.logger.DebugContext(ctx, "replaced image left in docker cache", "image_id", img.ID, "error", err)
+		}
 	}
-
-	baseName, version := parseImageTag(img.Tag)
-	repoName := customImageRepositoryName(img.OwnerID, baseName)
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
-	if err != nil {
-		s.logger.DebugContext(ctx, "canceled build manifest is not available for registry cleanup", "build_id", buildID, "image_id", img.ID, "error", err)
-		return
-	}
-	if digest == "" {
-		return
-	}
-	if err := s.registryAPI.DeleteManifest(ctx, repoName, digest); err != nil {
-		s.logger.WarnContext(ctx, "failed to delete canceled build manifest", "build_id", buildID, "image_id", img.ID, "error", err)
-		return
-	}
-	s.logger.InfoContext(ctx, "deleted canceled build manifest", "build_id", buildID, "image_id", img.ID)
 }
 
 func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
@@ -900,12 +973,44 @@ func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.B
 	return b, nil
 }
 
+// GetBuildStatus is Builder's status poll. It requires system scope and reads
+// any owner's build; GetBuild's owner check never admits system scope.
+func (s *BuildService) GetBuildStatus(ctx context.Context, buildID uuid.UUID) (string, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return "", err
+	}
+	if scope.Kind != accessscope.KindSystem {
+		return "", fmt.Errorf("%w: system scope is required", apperrors.ErrForbidden)
+	}
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return "", err
+	}
+	return b.Status, nil
+}
+
 func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error {
 	b, err := s.repo.GetByID(ctx, buildID)
 	if err != nil {
 		return err
 	}
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
+		return err
+	}
+	if !model.IsBuildTerminalStatus(b.Status) {
+		// An active build is canceled first, so its building image row never
+		// outlives it and its tag stays usable. A failed cancellation deletes
+		// nothing. The build is read again because a completion may have
+		// landed first; its status decides what happens to the pushed tag.
+		if err := s.cancelBuild(ctx, b); err != nil {
+			return err
+		}
+		if b, err = s.repo.GetByID(ctx, buildID); err != nil {
+			return err
+		}
+	}
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.PushedTagDisposition(b.Status)); err != nil {
 		return err
 	}
 	if err := s.repo.Delete(ctx, buildID); err != nil {
@@ -946,34 +1051,12 @@ func normalizeFailedBuildStatus(status string) string {
 }
 
 func (s *BuildService) cleanupBuildLog(ctx context.Context, build model.Build) {
-	if s.objectStore == nil || build.LogFilePath == "" {
+	if s.objectStore == nil || build.LogObjectKey == "" {
 		return
 	}
-	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
-	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogFilePath); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "error", err)
 	}
-}
-
-type maxBytesReader struct {
-	r         io.Reader
-	remaining int64
-}
-
-func (r *maxBytesReader) Read(p []byte) (int, error) {
-	if r.remaining <= 0 {
-		var one [1]byte
-		n, err := r.r.Read(one[:])
-		if n > 0 {
-			return 0, apperrors.ErrBadRequest
-		}
-		return 0, err
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.r.Read(p)
-	r.remaining -= int64(n)
-	return n, err
 }

@@ -1,12 +1,12 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) CreateContainer(ctx context.Context, createContainerDTO model.CreateContainerInput) (string, error) {
@@ -26,6 +26,9 @@ func (c *CoreClient) CreateContainer(ctx context.Context, createContainerDTO mod
 		EnvVars:      createContainerDTO.EnvVars,
 		VolumeMounts: mounts,
 		DomainPrefix: createContainerDTO.DomainPrefix,
+
+		MemoryReservationMb:      createContainerDTO.MemoryReservationMB,
+		CpuReservationMillicores: createContainerDTO.CPUReservationMillicores,
 	}
 
 	resp, err := c.containerAPI.CreateContainer(ctx, req)
@@ -72,16 +75,39 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, containerID, domainPre
 	return nil
 }
 
-func (c *CoreClient) ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error) {
-	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit), ProjectId: projectID}
+func (c *CoreClient) ListContainers(ctx context.Context, params model.ContainerListParams) (model.PaginatedContainers, error) {
+	req := &coreapi.ListContainersRequest{
+		Page:      int32(params.Page),
+		Limit:     int32(params.Limit),
+		ProjectId: params.ProjectID,
+		Status:    params.Status,
+		Sort:      params.Sort,
+		Order:     params.Order,
+		Query:     params.Query,
+	}
 	resp, err := c.containerAPI.ListContainers(ctx, req)
 	if err != nil {
 		return model.PaginatedContainers{}, grpcerrors.FromGRPC(err)
 	}
+	counts := resp.GetStatusCounts()
 	return model.PaginatedContainers{
 		Containers: containersFromProto(resp.GetContainers()),
 		TotalCount: resp.GetTotalCount(),
+		StatusCounts: model.ContainerStatusCounts{
+			All:       counts.GetAll(),
+			Running:   counts.GetRunning(),
+			Stopped:   counts.GetStopped(),
+			Attention: counts.GetAttention(),
+		},
 	}, nil
+}
+
+func (c *CoreClient) GetContainer(ctx context.Context, containerID string) (model.Container, error) {
+	resp, err := c.containerAPI.GetContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: containerID})
+	if err != nil {
+		return model.Container{}, grpcerrors.FromGRPC(err)
+	}
+	return containerFromProto(resp), nil
 }
 
 func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error) {
@@ -95,41 +121,57 @@ func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) 
 	return containerStatsFromProto(resp), nil
 }
 
-func containersFromProto(items []*coreapi.ContainerData) []model.Container {
-	result := make([]model.Container, 0, len(items))
+func containerRefsFromProto(items []*coreapi.ContainerRef) []model.ContainerRef {
+	result := make([]model.ContainerRef, 0, len(items))
 	for _, item := range items {
-		var lastExitCode *int
-		if item.LastExitCode != nil {
-			value := int(item.GetLastExitCode())
-			lastExitCode = &value
-		}
-		result = append(result, model.Container{
-			ID:            item.GetId(),
-			DockerID:      item.GetDockerId(),
-			ProjectID:     item.GetProjectId(),
-			Name:          item.GetName(),
-			ImageTag:      item.GetImageTag(),
-			InternalPort:  item.GetInternalPort(),
-			DomainPrefix:  item.GetDomainPrefix(),
-			Status:        item.GetStatus(),
-			DesiredStatus: item.GetDesiredStatus(),
-			LastError:     item.GetLastError(),
-			LastExitCode:  lastExitCode,
-			TTLDeadline:   item.GetTtlDeadline(),
-			CreatedAt:     item.GetCreatedAt(),
-			OwnerID:       item.GetOwnerId(),
-			OwnerUsername: item.GetOwnerUsername(),
-		})
+		result = append(result, model.ContainerRef{ContainerID: item.GetContainerId(), Name: item.GetName()})
 	}
 	return result
 }
 
+func containersFromProto(items []*coreapi.ContainerData) []model.Container {
+	result := make([]model.Container, 0, len(items))
+	for _, item := range items {
+		result = append(result, containerFromProto(item))
+	}
+	return result
+}
+
+func containerFromProto(item *coreapi.ContainerData) model.Container {
+	var lastExitCode *int
+	if item.LastExitCode != nil {
+		value := int(item.GetLastExitCode())
+		lastExitCode = &value
+	}
+	return model.Container{
+		ID:            item.GetId(),
+		DockerID:      item.GetDockerId(),
+		ProjectID:     item.GetProjectId(),
+		Name:          item.GetName(),
+		ImageTag:      item.GetImageTag(),
+		InternalPort:  item.GetInternalPort(),
+		DomainPrefix:  item.GetDomainPrefix(),
+		Status:        item.GetStatus(),
+		DesiredStatus: item.GetDesiredStatus(),
+		LastError:     item.GetLastError(),
+		LastExitCode:  lastExitCode,
+		TTLDeadline:   item.GetTtlDeadline(),
+		CreatedAt:     item.GetCreatedAt(),
+		OwnerID:       item.GetOwnerId(),
+		OwnerUsername: item.GetOwnerUsername(),
+
+		MemoryReservationBytes:   item.GetMemoryReservationBytes(),
+		CPUReservationMillicores: item.GetCpuReservationMillicores(),
+	}
+}
+
 func containerStatsFromProto(data *coreapi.ContainerStatsResponse) model.ContainerStats {
 	return model.ContainerStats{
-		CPUPercentage:    data.GetCpuPercentage(),
-		MemoryUsageBytes: data.GetMemoryUsageBytes(),
-		MemoryLimitBytes: data.GetMemoryLimitBytes(),
-		NetworkRxBytes:   data.GetNetworkRxBytes(),
-		NetworkTxBytes:   data.GetNetworkTxBytes(),
+		CPUPercentage:            data.GetCpuPercentage(),
+		MemoryUsageBytes:         data.GetMemoryUsageBytes(),
+		MemoryLimitBytes:         data.GetMemoryLimitBytes(),
+		MemoryStandardLimitBytes: data.GetMemoryStandardLimitBytes(),
+		NetworkRxBytes:           data.GetNetworkRxBytes(),
+		NetworkTxBytes:           data.GetNetworkTxBytes(),
 	}
 }

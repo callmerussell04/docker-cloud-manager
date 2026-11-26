@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
 
@@ -26,39 +25,24 @@ type ComposeOutboxConfigProvider interface {
 }
 
 type ComposeOutboxWorker struct {
-	repo      ComposeOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       ComposeOutboxConfigProvider
-	logger    *slog.Logger
+	repo   ComposeOutboxRepository
+	cfg    ComposeOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
-func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher BuildQueuePublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
+func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher OutboxPublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
+	logger = logging.WithComponent(logger, "compose_outbox_worker")
 	return &ComposeOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "compose_outbox_worker"),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("compose", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *ComposeOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "compose outbox worker started")
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().ComposeOutboxIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "compose outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().ComposeOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
@@ -70,25 +54,24 @@ func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		job, err := w.repo.GetComposeDeploymentJob(ctx, item.JobID)
 		if err == nil && model.IsComposeDeploymentTerminalStatus(job.Status) {
-			_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, nil), "job_id", item.JobID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err), "job_id", item.JobID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkComposeOutboxPending(ctx, item.ID, err), "job_id", item.JobID)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish compose queue message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkComposeOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark compose outbox message published", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   []any{"job_id", item.JobID},
+		}, w.repo.MarkComposeOutboxPublished, w.repo.MarkComposeOutboxPending)
 	}
 }

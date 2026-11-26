@@ -1,0 +1,7 @@
+import { privateApi } from '@/shared/api/client';
+import { type DashboardStats } from './model';
+
+export const getDashboardStatsFn = async (): Promise<DashboardStats> => {
+  const response = await privateApi.get<DashboardStats>('/stats');
+  return response.data;
+};

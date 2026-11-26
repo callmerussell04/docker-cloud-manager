@@ -3,9 +3,9 @@ package grpc
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"google.golang.org/grpc"
 )
 
@@ -27,179 +27,130 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 	if err := requireAdminScope(ctx); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	cfg := h.logic.GetConfig(ctx)
-	return &coreapi.SystemConfigData{
-		BaseDomain:                           cfg.BaseDomain,
-		DefaultMemoryReservationBytes:        cfg.DefaultMemoryReservation,
-		ReservedSystemMemoryBytes:            cfg.ReservedSystemMemory,
-		OvercommitFactor:                     cfg.OvercommitFactor,
-		MaxBurstMultiplier:                   cfg.MaxBurstMultiplier,
-		DefaultCpuReservationMillicores:      cfg.DefaultCPUReservation,
-		ReservedSystemCpuMillicores:          cfg.ReservedSystemCPU,
-		CpuOvercommitFactor:                  cfg.CPUOvercommitFactor,
-		MaxCpuBurstMultiplier:                cfg.MaxCPUBurstMultiplier,
-		ContainerCpuPeriod:                   cfg.ContainerCPUPeriod,
-		DefaultCpuShares:                     cfg.DefaultCPUShares,
-		HighLoadCpuShares:                    cfg.HighLoadCPUShares,
-		HighLoadContainerCount:               int32(cfg.HighLoadContainerCount),
-		ContainerStopTimeout:                 int32(cfg.ContainerStopTimeout),
-		MaxLogSize:                           cfg.MaxLogSize,
-		MaxLogFiles:                          cfg.MaxLogFiles,
-		ContainerDiskQuota:                   cfg.ContainerDiskQuota,
-		ReservedDomainPrefixes:               cfg.ReservedDomainPrefixes,
-		BlockedDomainPrefixPatterns:          cfg.BlockedDomainPrefixPatterns,
-		MaxVolumesPerUser:                    int32(cfg.MaxVolumesPerUser),
-		MaxContainersPerUser:                 int32(cfg.MaxContainersPerUser),
-		ContainerTtlHours:                    cfg.ContainerTTLHours,
-		ContainerPidsLimit:                   cfg.ContainerPidsLimit,
-		ContainerMemorySwapMultiplier:        cfg.ContainerMemorySwapMultiplier,
-		ImageBuildsEnabled:                   cfg.ImageBuildsEnabled,
-		BuildMemoryBytes:                     cfg.BuildMemoryBytes,
-		BuildCpuQuota:                        cfg.BuildCPUQuota,
-		BuildCpuPeriod:                       cfg.BuildCPUPeriod,
-		BuildMemorySwapMultiplier:            cfg.BuildMemorySwapMultiplier,
-		BuildPidsLimit:                       cfg.BuildPidsLimit,
-		KanikoImage:                          cfg.KanikoImage,
-		MaxBuildTimeMinutes:                  cfg.MaxBuildTimeMinutes,
-		MaxConcurrentBuilds:                  int32(cfg.MaxConcurrentBuilds),
-		MaxUploadSizeBytes:                   cfg.MaxUploadSizeBytes,
-		MaxArchiveSizeBytes:                  cfg.MaxArchiveSizeBytes,
-		MaxUnpackedSizeBytes:                 cfg.MaxUnpackedSizeBytes,
-		MaxBuildLogSizeBytes:                 cfg.MaxBuildLogSizeBytes,
-		BuildCancelPollIntervalSeconds:       cfg.BuildCancelPollIntervalSeconds,
-		TtlWorkerIntervalSeconds:             cfg.TTLWorkerIntervalSeconds,
-		GcWorkerIntervalMinutes:              cfg.GCWorkerIntervalMinutes,
-		StaleBuildTimeoutMinutes:             cfg.StaleBuildTimeoutMinutes,
-		EventSyncIntervalSeconds:             cfg.EventSyncIntervalSeconds,
-		EventReconnectDelaySeconds:           cfg.EventReconnectDelaySeconds,
-		BuildOutboxIntervalSeconds:           cfg.BuildOutboxIntervalSeconds,
-		BuildOutboxBatchSize:                 int32(cfg.BuildOutboxBatchSize),
-		ContainerCreateWorkerCount:           int32(cfg.ContainerCreateWorkerCount),
-		ContainerCreateMaxAttempts:           int32(cfg.ContainerCreateMaxAttempts),
-		ContainerCreateTimeoutMinutes:        cfg.ContainerCreateTimeoutMinutes,
-		MaxQueuedContainerCreatesPerUser:     int32(cfg.MaxQueuedContainerCreatesPerUser),
-		ContainerCreateOutboxIntervalSeconds: cfg.ContainerCreateOutboxIntervalSeconds,
-		ContainerCreateOutboxBatchSize:       int32(cfg.ContainerCreateOutboxBatchSize),
-		ReportsUsageSnapshotIntervalSeconds:  cfg.ReportsUsageSnapshotIntervalSeconds,
-		MaxStagedSourceBytesPerUser:          cfg.MaxStagedSourceBytesPerUser,
-		MaxQueuedBuildsPerUser:               int32(cfg.MaxQueuedBuildsPerUser),
-		ComposeUploadMaxBytes:                cfg.ComposeUploadMaxBytes,
-		ComposePipelineTimeoutMinutes:        cfg.ComposePipelineTimeoutMinutes,
-		ComposeDeployWorkerCount:             int32(cfg.ComposeDeployWorkerCount),
-		ComposeOutboxIntervalSeconds:         cfg.ComposeOutboxIntervalSeconds,
-		ComposeOutboxBatchSize:               int32(cfg.ComposeOutboxBatchSize),
-		ComposeDeployMaxAttempts:             int32(cfg.ComposeDeployMaxAttempts),
-		MaxQueuedComposeDeploysPerUser:       int32(cfg.MaxQueuedComposeDeploysPerUser),
-		ComposeBuildPollIntervalSeconds:      cfg.ComposeBuildPollIntervalSeconds,
-		ComposeDependencyWaitTimeoutMinutes:  cfg.ComposeDependencyWaitTimeoutMinutes,
-		ComposeDependencyPollIntervalSeconds: cfg.ComposeDependencyPollIntervalSeconds,
-		ComposeCoordinatorIntervalSeconds:    cfg.ComposeCoordinatorIntervalSeconds,
-		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
-		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
-		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
-		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
-		TelemetryTerminalIdleTimeoutSeconds:  cfg.TelemetryTerminalIdleTimeoutSeconds,
-		TelemetryTerminalMaxDurationSeconds:  cfg.TelemetryTerminalMaxDurationSeconds,
-		TelemetryAllowedExecCommands:         cfg.TelemetryAllowedExecCommands,
-		TelemetryMaxCommandArgs:              int32(cfg.TelemetryMaxCommandArgs),
-		TelemetryMaxCommandArgBytes:          int32(cfg.TelemetryMaxCommandArgBytes),
-		TelemetryWsReadLimitBytes:            cfg.TelemetryWSReadLimitBytes,
-		GitSourcesEnabled:                    cfg.GitSourcesEnabled,
-		GitAllowedHosts:                      cfg.GitAllowedHosts,
-		GitCloneTimeoutSeconds:               cfg.GitCloneTimeoutSeconds,
-		GitMaxRepositoryBytes:                cfg.GitMaxRepositoryBytes,
-	}, nil
+	return systemConfigToProto(h.logic.GetConfig(ctx)), nil
 }
 
 func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {
 	if err := requireAdminScope(ctx); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
+	// The update starts from the current snapshot, so the fixed part an
+	// administrator cannot change is carried over as it is.
 	newCfg := h.logic.GetConfig(ctx)
-	newCfg.BaseDomain = req.GetBaseDomain()
-	newCfg.DefaultMemoryReservation = req.GetDefaultMemoryReservationBytes()
-	newCfg.ReservedSystemMemory = req.GetReservedSystemMemoryBytes()
-	newCfg.OvercommitFactor = req.GetOvercommitFactor()
-	newCfg.MaxBurstMultiplier = req.GetMaxBurstMultiplier()
-	newCfg.DefaultCPUReservation = req.GetDefaultCpuReservationMillicores()
-	newCfg.ReservedSystemCPU = req.GetReservedSystemCpuMillicores()
-	newCfg.CPUOvercommitFactor = req.GetCpuOvercommitFactor()
-	newCfg.MaxCPUBurstMultiplier = req.GetMaxCpuBurstMultiplier()
-	newCfg.ContainerCPUPeriod = req.GetContainerCpuPeriod()
-	newCfg.DefaultCPUShares = req.GetDefaultCpuShares()
-	newCfg.HighLoadCPUShares = req.GetHighLoadCpuShares()
-	newCfg.HighLoadContainerCount = int(req.GetHighLoadContainerCount())
-	newCfg.ContainerStopTimeout = int(req.GetContainerStopTimeout())
-	newCfg.MaxLogSize = req.GetMaxLogSize()
-	newCfg.MaxLogFiles = req.GetMaxLogFiles()
-	newCfg.ContainerDiskQuota = req.GetContainerDiskQuota()
-	newCfg.ReservedDomainPrefixes = req.GetReservedDomainPrefixes()
-	newCfg.BlockedDomainPrefixPatterns = req.GetBlockedDomainPrefixPatterns()
-	newCfg.MaxVolumesPerUser = int(req.GetMaxVolumesPerUser())
-	newCfg.MaxContainersPerUser = int(req.GetMaxContainersPerUser())
-	newCfg.ContainerTTLHours = req.GetContainerTtlHours()
-	newCfg.ContainerPidsLimit = req.GetContainerPidsLimit()
-	newCfg.ContainerMemorySwapMultiplier = req.GetContainerMemorySwapMultiplier()
-	newCfg.ImageBuildsEnabled = req.GetImageBuildsEnabled()
-	newCfg.BuildMemoryBytes = req.GetBuildMemoryBytes()
-	newCfg.BuildCPUQuota = req.GetBuildCpuQuota()
-	newCfg.BuildCPUPeriod = req.GetBuildCpuPeriod()
-	newCfg.BuildMemorySwapMultiplier = req.GetBuildMemorySwapMultiplier()
-	newCfg.BuildPidsLimit = req.GetBuildPidsLimit()
-	newCfg.KanikoImage = req.GetKanikoImage()
-	newCfg.MaxBuildTimeMinutes = req.GetMaxBuildTimeMinutes()
-	newCfg.MaxConcurrentBuilds = int(req.GetMaxConcurrentBuilds())
-	newCfg.MaxUploadSizeBytes = req.GetMaxUploadSizeBytes()
-	newCfg.MaxArchiveSizeBytes = req.GetMaxArchiveSizeBytes()
-	newCfg.MaxUnpackedSizeBytes = req.GetMaxUnpackedSizeBytes()
-	newCfg.MaxBuildLogSizeBytes = req.GetMaxBuildLogSizeBytes()
-	newCfg.BuildCancelPollIntervalSeconds = req.GetBuildCancelPollIntervalSeconds()
-	newCfg.TTLWorkerIntervalSeconds = req.GetTtlWorkerIntervalSeconds()
-	newCfg.GCWorkerIntervalMinutes = req.GetGcWorkerIntervalMinutes()
-	newCfg.StaleBuildTimeoutMinutes = req.GetStaleBuildTimeoutMinutes()
-	newCfg.EventSyncIntervalSeconds = req.GetEventSyncIntervalSeconds()
-	newCfg.EventReconnectDelaySeconds = req.GetEventReconnectDelaySeconds()
-	newCfg.BuildOutboxIntervalSeconds = req.GetBuildOutboxIntervalSeconds()
-	newCfg.BuildOutboxBatchSize = int(req.GetBuildOutboxBatchSize())
-	newCfg.ContainerCreateWorkerCount = int(req.GetContainerCreateWorkerCount())
-	newCfg.ContainerCreateMaxAttempts = int(req.GetContainerCreateMaxAttempts())
-	newCfg.ContainerCreateTimeoutMinutes = req.GetContainerCreateTimeoutMinutes()
-	newCfg.MaxQueuedContainerCreatesPerUser = int(req.GetMaxQueuedContainerCreatesPerUser())
-	newCfg.ContainerCreateOutboxIntervalSeconds = req.GetContainerCreateOutboxIntervalSeconds()
-	newCfg.ContainerCreateOutboxBatchSize = int(req.GetContainerCreateOutboxBatchSize())
-	newCfg.ReportsUsageSnapshotIntervalSeconds = req.GetReportsUsageSnapshotIntervalSeconds()
-	newCfg.MaxStagedSourceBytesPerUser = req.GetMaxStagedSourceBytesPerUser()
-	newCfg.MaxQueuedBuildsPerUser = int(req.GetMaxQueuedBuildsPerUser())
-	newCfg.ComposeUploadMaxBytes = req.GetComposeUploadMaxBytes()
-	newCfg.ComposePipelineTimeoutMinutes = req.GetComposePipelineTimeoutMinutes()
-	newCfg.ComposeDeployWorkerCount = int(req.GetComposeDeployWorkerCount())
-	newCfg.ComposeOutboxIntervalSeconds = req.GetComposeOutboxIntervalSeconds()
-	newCfg.ComposeOutboxBatchSize = int(req.GetComposeOutboxBatchSize())
-	newCfg.ComposeDeployMaxAttempts = int(req.GetComposeDeployMaxAttempts())
-	newCfg.MaxQueuedComposeDeploysPerUser = int(req.GetMaxQueuedComposeDeploysPerUser())
-	newCfg.ComposeBuildPollIntervalSeconds = req.GetComposeBuildPollIntervalSeconds()
-	newCfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
-	newCfg.ComposeDependencyPollIntervalSeconds = req.GetComposeDependencyPollIntervalSeconds()
-	newCfg.ComposeCoordinatorIntervalSeconds = req.GetComposeCoordinatorIntervalSeconds()
-	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
-	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
-	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
-	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())
-	newCfg.TelemetryTerminalIdleTimeoutSeconds = req.GetTelemetryTerminalIdleTimeoutSeconds()
-	newCfg.TelemetryTerminalMaxDurationSeconds = req.GetTelemetryTerminalMaxDurationSeconds()
-	newCfg.TelemetryAllowedExecCommands = req.GetTelemetryAllowedExecCommands()
-	newCfg.TelemetryMaxCommandArgs = int(req.GetTelemetryMaxCommandArgs())
-	newCfg.TelemetryMaxCommandArgBytes = int(req.GetTelemetryMaxCommandArgBytes())
-	newCfg.TelemetryWSReadLimitBytes = req.GetTelemetryWsReadLimitBytes()
-	newCfg.GitSourcesEnabled = req.GetGitSourcesEnabled()
-	newCfg.GitAllowedHosts = req.GetGitAllowedHosts()
-	newCfg.GitCloneTimeoutSeconds = req.GetGitCloneTimeoutSeconds()
-	newCfg.GitMaxRepositoryBytes = req.GetGitMaxRepositoryBytes()
+	applyRuntimeSettings(&newCfg, req)
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
+}
+
+// systemConfigToProto and applyRuntimeSettings carry every runtime setting,
+// and nothing of the fixed part, between the snapshot and the message.
+func systemConfigToProto(cfg config.SystemConfig) *coreapi.SystemConfigData {
+	return &coreapi.SystemConfigData{
+		ReservedSystemMemoryBytes:           cfg.ReservedSystemMemory,
+		OvercommitFactor:                    cfg.OvercommitFactor,
+		ReservedSystemCpuMillicores:         cfg.ReservedSystemCPU,
+		CpuOvercommitFactor:                 cfg.CPUOvercommitFactor,
+		HostMinFreeDiskBytes:                cfg.HostMinFreeDiskBytes,
+		DefaultMemoryReservationBytes:       cfg.DefaultMemoryReservation,
+		MaxBurstMultiplier:                  cfg.MaxBurstMultiplier,
+		DefaultCpuReservationMillicores:     cfg.DefaultCPUReservation,
+		MaxCpuBurstMultiplier:               cfg.MaxCPUBurstMultiplier,
+		MemoryPressureMinFreeBytes:          cfg.MemoryPressureMinFreeBytes,
+		MemoryBoostMultiplier:               cfg.MemoryBoostMultiplier,
+		CpuBoostMultiplier:                  cfg.CPUBoostMultiplier,
+		BoostMinFreeMemoryBytes:             cfg.BoostMinFreeMemoryBytes,
+		ContainerTtlHours:                   cfg.ContainerTTLHours,
+		ContainerStopTimeout:                int32(cfg.ContainerStopTimeout),
+		ContainerPidsLimit:                  cfg.ContainerPidsLimit,
+		ContainerDiskQuota:                  cfg.ContainerDiskQuota,
+		MaxLogSize:                          cfg.MaxLogSize,
+		DefaultVolumeSizeBytes:              cfg.DefaultVolumeSizeBytes,
+		VolumeSizeEnforcement:               cfg.VolumeSizeEnforcement,
+		DefaultUserQuotaCpu:                 cfg.DefaultUserQuotaCPU,
+		DefaultUserQuotaRamMb:               cfg.DefaultUserQuotaRAMMB,
+		DefaultUserQuotaDiskMb:              cfg.DefaultUserQuotaDiskMB,
+		MaxContainersPerUser:                int32(cfg.MaxContainersPerUser),
+		MaxVolumesPerUser:                   int32(cfg.MaxVolumesPerUser),
+		MaxQueuedBuildsPerUser:              int32(cfg.MaxQueuedBuildsPerUser),
+		MaxQueuedComposeDeploysPerUser:      int32(cfg.MaxQueuedComposeDeploysPerUser),
+		MaxStagedSourceBytesPerUser:         cfg.MaxStagedSourceBytesPerUser,
+		ImageBuildsEnabled:                  cfg.ImageBuildsEnabled,
+		MaxConcurrentBuilds:                 int32(cfg.MaxConcurrentBuilds),
+		BuildMemoryBytes:                    cfg.BuildMemoryBytes,
+		BuildCpuMillicores:                  cfg.BuildCPUMillicores,
+		BuildMaxDiskBytes:                   cfg.BuildMaxDiskBytes,
+		MaxBuildTimeMinutes:                 cfg.MaxBuildTimeMinutes,
+		MaxBuildLogSizeBytes:                cfg.MaxBuildLogSizeBytes,
+		MaxArchiveSizeBytes:                 cfg.MaxArchiveSizeBytes,
+		MaxUnpackedSizeBytes:                cfg.MaxUnpackedSizeBytes,
+		GitSourcesEnabled:                   cfg.GitSourcesEnabled,
+		GitAllowedHosts:                     cfg.GitAllowedHosts,
+		GitCloneTimeoutSeconds:              cfg.GitCloneTimeoutSeconds,
+		GitMaxRepositoryBytes:               cfg.GitMaxRepositoryBytes,
+		ComposeUploadMaxBytes:               cfg.ComposeUploadMaxBytes,
+		ComposePipelineTimeoutMinutes:       cfg.ComposePipelineTimeoutMinutes,
+		ComposeDependencyWaitTimeoutMinutes: cfg.ComposeDependencyWaitTimeoutMinutes,
+		ReservedDomainPrefixes:              cfg.ReservedDomainPrefixes,
+		BlockedDomainPrefixPatterns:         cfg.BlockedDomainPrefixPatterns,
+		TelemetryAllowedExecCommands:        cfg.TelemetryAllowedExecCommands,
+		TelemetryTerminalIdleTimeoutSeconds: cfg.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds: cfg.TelemetryTerminalMaxDurationSeconds,
+	}
+}
+
+func applyRuntimeSettings(cfg *config.SystemConfig, req *coreapi.SystemConfigData) {
+	cfg.ReservedSystemMemory = req.GetReservedSystemMemoryBytes()
+	cfg.OvercommitFactor = req.GetOvercommitFactor()
+	cfg.ReservedSystemCPU = req.GetReservedSystemCpuMillicores()
+	cfg.CPUOvercommitFactor = req.GetCpuOvercommitFactor()
+	cfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
+	cfg.DefaultMemoryReservation = req.GetDefaultMemoryReservationBytes()
+	cfg.MaxBurstMultiplier = req.GetMaxBurstMultiplier()
+	cfg.DefaultCPUReservation = req.GetDefaultCpuReservationMillicores()
+	cfg.MaxCPUBurstMultiplier = req.GetMaxCpuBurstMultiplier()
+	cfg.MemoryPressureMinFreeBytes = req.GetMemoryPressureMinFreeBytes()
+	cfg.MemoryBoostMultiplier = req.GetMemoryBoostMultiplier()
+	cfg.CPUBoostMultiplier = req.GetCpuBoostMultiplier()
+	cfg.BoostMinFreeMemoryBytes = req.GetBoostMinFreeMemoryBytes()
+	cfg.ContainerTTLHours = req.GetContainerTtlHours()
+	cfg.ContainerStopTimeout = int(req.GetContainerStopTimeout())
+	cfg.ContainerPidsLimit = req.GetContainerPidsLimit()
+	cfg.ContainerDiskQuota = req.GetContainerDiskQuota()
+	cfg.MaxLogSize = req.GetMaxLogSize()
+	cfg.DefaultVolumeSizeBytes = req.GetDefaultVolumeSizeBytes()
+	cfg.VolumeSizeEnforcement = req.GetVolumeSizeEnforcement()
+	cfg.DefaultUserQuotaCPU = req.GetDefaultUserQuotaCpu()
+	cfg.DefaultUserQuotaRAMMB = req.GetDefaultUserQuotaRamMb()
+	cfg.DefaultUserQuotaDiskMB = req.GetDefaultUserQuotaDiskMb()
+	cfg.MaxContainersPerUser = int(req.GetMaxContainersPerUser())
+	cfg.MaxVolumesPerUser = int(req.GetMaxVolumesPerUser())
+	cfg.MaxQueuedBuildsPerUser = int(req.GetMaxQueuedBuildsPerUser())
+	cfg.MaxQueuedComposeDeploysPerUser = int(req.GetMaxQueuedComposeDeploysPerUser())
+	cfg.MaxStagedSourceBytesPerUser = req.GetMaxStagedSourceBytesPerUser()
+	cfg.ImageBuildsEnabled = req.GetImageBuildsEnabled()
+	cfg.MaxConcurrentBuilds = int(req.GetMaxConcurrentBuilds())
+	cfg.BuildMemoryBytes = req.GetBuildMemoryBytes()
+	cfg.BuildCPUMillicores = req.GetBuildCpuMillicores()
+	cfg.BuildMaxDiskBytes = req.GetBuildMaxDiskBytes()
+	cfg.MaxBuildTimeMinutes = req.GetMaxBuildTimeMinutes()
+	cfg.MaxBuildLogSizeBytes = req.GetMaxBuildLogSizeBytes()
+	cfg.MaxArchiveSizeBytes = req.GetMaxArchiveSizeBytes()
+	cfg.MaxUnpackedSizeBytes = req.GetMaxUnpackedSizeBytes()
+	cfg.GitSourcesEnabled = req.GetGitSourcesEnabled()
+	cfg.GitAllowedHosts = req.GetGitAllowedHosts()
+	cfg.GitCloneTimeoutSeconds = req.GetGitCloneTimeoutSeconds()
+	cfg.GitMaxRepositoryBytes = req.GetGitMaxRepositoryBytes()
+	cfg.ComposeUploadMaxBytes = req.GetComposeUploadMaxBytes()
+	cfg.ComposePipelineTimeoutMinutes = req.GetComposePipelineTimeoutMinutes()
+	cfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
+	cfg.ReservedDomainPrefixes = req.GetReservedDomainPrefixes()
+	cfg.BlockedDomainPrefixPatterns = req.GetBlockedDomainPrefixPatterns()
+	cfg.TelemetryAllowedExecCommands = req.GetTelemetryAllowedExecCommands()
+	cfg.TelemetryTerminalIdleTimeoutSeconds = req.GetTelemetryTerminalIdleTimeoutSeconds()
+	cfg.TelemetryTerminalMaxDurationSeconds = req.GetTelemetryTerminalMaxDurationSeconds()
 }
 
 func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.BuilderRuntimeConfigData, error) {
@@ -209,7 +160,7 @@ func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.
 	cfg := h.logic.GetConfig(ctx)
 	return &coreapi.BuilderRuntimeConfigData{
 		BuildMemoryBytes:               cfg.BuildMemoryBytes,
-		BuildCpuQuota:                  cfg.BuildCPUQuota,
+		BuildCpuQuota:                  cfg.BuildCPUQuota(),
 		BuildCpuPeriod:                 cfg.BuildCPUPeriod,
 		BuildMemorySwapMultiplier:      cfg.BuildMemorySwapMultiplier,
 		BuildPidsLimit:                 cfg.BuildPidsLimit,
@@ -220,23 +171,6 @@ func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.
 		MaxUnpackedSizeBytes:           cfg.MaxUnpackedSizeBytes,
 		MaxBuildLogSizeBytes:           cfg.MaxBuildLogSizeBytes,
 		BuildCancelPollIntervalSeconds: cfg.BuildCancelPollIntervalSeconds,
-	}, nil
-}
-
-func (h *SystemHandler) GetTelemetryRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
-	if err := requireSystemScope(ctx); err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-	cfg := h.logic.GetConfig(ctx)
-	return &coreapi.TelemetryRuntimeConfigData{
-		TelemetryMaxLogTailLines:            int32(cfg.TelemetryMaxLogTailLines),
-		TelemetryMaxLogStreamsPerUser:       int32(cfg.TelemetryMaxLogStreamsPerUser),
-		TelemetryMaxTerminalSessionsPerUser: int32(cfg.TelemetryMaxTerminalSessionsPerUser),
-		TelemetryTerminalIdleTimeoutSeconds: cfg.TelemetryTerminalIdleTimeoutSeconds,
-		TelemetryTerminalMaxDurationSeconds: cfg.TelemetryTerminalMaxDurationSeconds,
-		TelemetryAllowedExecCommands:        cfg.TelemetryAllowedExecCommands,
-		TelemetryMaxCommandArgs:             int32(cfg.TelemetryMaxCommandArgs),
-		TelemetryMaxCommandArgBytes:         int32(cfg.TelemetryMaxCommandArgBytes),
-		TelemetryWsReadLimitBytes:           cfg.TelemetryWSReadLimitBytes,
+		BuildMaxDiskBytes:              cfg.BuildMaxDiskBytes,
 	}, nil
 }

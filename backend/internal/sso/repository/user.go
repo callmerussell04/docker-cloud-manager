@@ -2,43 +2,42 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
 func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 	query := `
 		INSERT INTO users (
-			id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+			id, username, email, password_hash, role, status,
 			auth_source, external_provider, external_subject, external_username, last_login_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		user.ID,
 		user.Username,
 		user.Email,
 		nullString(user.PasswordHash),
 		user.Role,
 		user.Status,
-		user.QuotaCPU,
-		user.QuotaRAMMB,
-		user.QuotaDiskMB,
 		authSource(user.AuthSource),
 		nullString(user.ExternalProvider),
 		nullString(user.ExternalSubject),
@@ -46,7 +45,7 @@ func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 		nullTime(user.LastLoginAt),
 	)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
@@ -58,17 +57,17 @@ func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 
 func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
-		WHERE username = $1
+		WHERE lower(username) = lower($1)
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, username).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, username).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -79,17 +78,17 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
-		WHERE email = $1
+		WHERE lower(email) = lower($1)
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, email).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, email).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -100,16 +99,16 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (mode
 
 func (r *UserRepository) GetUserByExternalIdentity(ctx context.Context, provider, subject string) (model.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
 		WHERE external_provider = $1 AND external_subject = $2
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, provider, subject).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, provider, subject).Scan(userScanDest(&user)...)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -120,17 +119,17 @@ func (r *UserRepository) GetUserByExternalIdentity(ctx context.Context, provider
 
 func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
 		WHERE id = $1
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, id).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, id).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -145,13 +144,13 @@ func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]
 	}
 
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
 		WHERE id = ANY($1)
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(ids))
+	rows, err := r.db.Query(ctx, query, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -172,19 +171,19 @@ func (r *UserRepository) ListUsers(ctx context.Context, opts model.ListUsersOpti
 	countQuery := `SELECT COUNT(*) FROM users`
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, countQuery).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-		SELECT id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
 		ORDER BY created_at DESC, id DESC
 		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, opts.Limit, opts.Offset)
+	rows, err := r.db.Query(ctx, query, opts.Limit, opts.Offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -202,6 +201,14 @@ func (r *UserRepository) ListUsers(ctx context.Context, opts model.ListUsersOpti
 }
 
 func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error {
+	return updateUser(ctx, r.db, user)
+}
+
+type userExecutor interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func updateUser(ctx context.Context, executor userExecutor, user model.User) error {
 	query := `
 		UPDATE users
 		SET username = $2,
@@ -209,27 +216,21 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error 
 		    password_hash = $4,
 		    role = $5,
 		    status = $6,
-		    quota_cpu = $7,
-		    quota_ram_mb = $8,
-		    quota_disk_mb = $9,
-		    auth_source = $10,
-		    external_provider = $11,
-		    external_subject = $12,
-		    external_username = $13,
-		    last_login_at = $14
+		    auth_source = $7,
+		    external_provider = $8,
+		    external_subject = $9,
+		    external_username = $10,
+		    last_login_at = $11
 		WHERE id = $1
 	`
 
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := executor.Exec(ctx, query,
 		user.ID,
 		user.Username,
 		user.Email,
 		nullString(user.PasswordHash),
 		user.Role,
 		user.Status,
-		user.QuotaCPU,
-		user.QuotaRAMMB,
-		user.QuotaDiskMB,
 		authSource(user.AuthSource),
 		nullString(user.ExternalProvider),
 		nullString(user.ExternalSubject),
@@ -237,31 +238,18 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error 
 		nullTime(user.LastLoginAt),
 	)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
 		return err
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
+	affected := result.RowsAffected()
 	if affected == 0 {
 		return apperrors.ErrNotFound
 	}
 	return nil
-}
-
-func (r *UserRepository) CountActiveAdmins(ctx context.Context) (int, error) {
-	query := `SELECT COUNT(*) FROM users WHERE role = $1 AND status = $2`
-
-	var total int
-	if err := r.db.QueryRowContext(ctx, query, model.RoleAdmin, model.StatusActive).Scan(&total); err != nil {
-		return 0, err
-	}
-	return total, nil
 }
 
 func userScanDest(user *model.User) []any {
@@ -272,14 +260,11 @@ func userScanDest(user *model.User) []any {
 		nullableStringDest{value: &user.PasswordHash},
 		&user.Role,
 		&user.Status,
-		&user.QuotaCPU,
-		&user.QuotaRAMMB,
-		&user.QuotaDiskMB,
 		authSourceDest{value: &user.AuthSource},
 		nullableStringDest{value: &user.ExternalProvider},
 		nullableStringDest{value: &user.ExternalSubject},
 		nullableStringDest{value: &user.ExternalUsername},
-		nullableTimeDest{value: &user.LastLoginAt},
+		&user.LastLoginAt,
 	}
 }
 
@@ -290,51 +275,27 @@ func nullString(value string) any {
 	return value
 }
 
+// nullableStringDest scans a nullable text column into a string, NULL as "".
 type nullableStringDest struct {
 	value *string
 }
 
-func (d nullableStringDest) Scan(src any) error {
-	var value sql.NullString
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	*d.value = value.String
+func (d nullableStringDest) ScanText(v pgtype.Text) error {
+	*d.value = v.String
 	return nil
 }
 
+// authSourceDest scans the auth source, treating NULL or "" as local.
 type authSourceDest struct {
 	value *string
 }
 
-func (d authSourceDest) Scan(src any) error {
-	var value sql.NullString
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	if value.String == "" {
+func (d authSourceDest) ScanText(v pgtype.Text) error {
+	if v.String == "" {
 		*d.value = model.AuthSourceLocal
 		return nil
 	}
-	*d.value = value.String
-	return nil
-}
-
-type nullableTimeDest struct {
-	value **time.Time
-}
-
-func (d nullableTimeDest) Scan(src any) error {
-	var value sql.NullTime
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	if !value.Valid {
-		*d.value = nil
-		return nil
-	}
-	t := value.Time
-	*d.value = &t
+	*d.value = v.String
 	return nil
 }
 

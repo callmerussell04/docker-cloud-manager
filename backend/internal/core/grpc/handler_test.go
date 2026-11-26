@@ -1,0 +1,852 @@
+package grpc_test
+
+import (
+	"context"
+	"net"
+	"testing"
+	"time"
+
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	coregrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/fieldfill"
+	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/grpc"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+)
+
+func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	projectID := uuid.New()
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	var createParams model.ContainerCreateParams
+	logic.EXPECT().
+		Create(mock.Anything, mock.AnythingOfType("model.ContainerCreateParams")).
+		Run(func(ctx context.Context, params model.ContainerCreateParams) {
+			createParams = params
+		}).
+		Return(containerID, nil)
+	logic.EXPECT().List(mock.Anything, model.ContainerListQuery{
+		ProjectID: &projectID,
+		Limit:     50,
+		Offset:    50,
+		ContainerListFilter: model.ContainerListFilter{
+			Status: model.ContainerFilterRunning,
+			Sort:   model.ContainerSortMemory,
+			Order:  model.SortDescending,
+			Search: "web",
+		},
+	}).Return(model.ContainerPage{
+		Containers: []model.Container{{
+			ID:           containerID,
+			OwnerID:      ownerID,
+			ProjectID:    &projectID,
+			Name:         "web",
+			ImageTag:     "nginx:latest",
+			InternalPort: 8080,
+			Status:       model.ContainerStatusRunning,
+			CreatedAt:    time.Unix(123, 0),
+		}},
+		Total:  1,
+		Counts: model.ContainerFilterCounts{All: 4, Running: 1, Stopped: 2, Attention: 1},
+	}, nil)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, users)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+	ctx := userScopeContext(ownerID)
+
+	createResp, err := client.CreateContainer(ctx, &coreapi.CreateContainerRequest{
+		Name: "web", ImageTag: "nginx:latest",
+		VolumeMounts:        []*coreapi.VolumeMount{{VolumeId: uuid.NewString(), MountPath: "/data", IsReadonly: true}},
+		MemoryReservationMb: 512, CpuReservationMillicores: 750,
+	})
+	require.NoError(t, err)
+	require.Equal(t, containerID.String(), createResp.ContainerId)
+	require.Equal(t, "web", createParams.Name)
+	require.EqualValues(t, 512, createParams.MemoryReservationMB)
+	require.EqualValues(t, 750, createParams.CPUReservationMillicores)
+	require.Len(t, createParams.VolumeMounts, 1)
+	require.True(t, createParams.VolumeMounts[0].IsReadOnly)
+
+	listResp, err := client.ListContainers(ctx, &coreapi.ListContainersRequest{
+		Limit: 50, Page: 2, ProjectId: projectID.String(),
+		Status: "running", Sort: "memory", Order: "desc", Query: "web",
+	})
+	require.NoError(t, err)
+	require.Len(t, listResp.Containers, 1)
+	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
+	require.Equal(t, projectID.String(), listResp.Containers[0].ProjectId)
+	require.Equal(t, int32(1), listResp.TotalCount)
+	counts := listResp.GetStatusCounts()
+	require.Equal(t, []int32{4, 1, 2, 1}, []int32{counts.GetAll(), counts.GetRunning(), counts.GetStopped(), counts.GetAttention()})
+}
+
+func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, coregrpcmocks.NewMockContainerLogic(t), nil)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+	ctx := userScopeContext(uuid.New())
+
+	_, err := client.CreateContainer(ctx, &coreapi.CreateContainerRequest{Name: "", ImageTag: ""})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.StartContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.ListContainers(ctx, &coreapi.ListContainersRequest{ProjectId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.ExposeContainer(ctx, &coreapi.ExposeRequest{ContainerId: uuid.NewString(), DomainPrefix: "", InternalPort: 0})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestCoreResourceGRPCHandlersRejectSystemScope(t *testing.T) {
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, coregrpcmocks.NewMockContainerLogic(t), nil)
+		coregrpc.RegisterVolumeAPI(s, coregrpcmocks.NewMockVolumeLogic(t), nil)
+		coregrpc.RegisterSystemAPI(s, coregrpcmocks.NewMockSystemLogic(t))
+	})
+	containers := coreapi.NewContainerAPIClient(conn)
+	volumes := coreapi.NewVolumeAPIClient(conn)
+	system := coreapi.NewSystemAPIClient(conn)
+	ctx := systemScopeContext()
+
+	_, err := containers.ListContainers(ctx, &coreapi.ListContainersRequest{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	_, err = volumes.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data"})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	_, err = system.GetConfig(ctx, &coreapi.Empty{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
+	containerID := uuid.New()
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().
+		Expose(mock.Anything, containerID, "app", 8080).
+		Return(apperrors.New(apperrors.ErrAlreadyExists, "subdomain app.example.test is already in use"))
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, nil)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	_, err := client.ExposeContainer(userScopeContext(uuid.New()), &coreapi.ExposeRequest{
+		ContainerId:  containerID.String(),
+		DomainPrefix: "app",
+		InternalPort: 8080,
+	})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+	require.Equal(t, "subdomain app.example.test is already in use", status.Convert(err).Message())
+}
+
+func TestContainerGRPCHandlerMapsGet(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	exitCode := 137
+	container := model.Container{
+		ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, DockerID: "docker-web", Name: "web",
+		ImageTag: "nginx:latest", InternalPort: 8080, DomainPrefix: "app",
+		Status: model.ContainerStatusExited, DesiredStatus: model.ContainerStatusExited, LastExitCode: &exitCode,
+		BaseMemoryReservation: 512 << 20, BaseCPUReservation: 750,
+	}
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().Get(mock.Anything, container.ID).Return(container, nil)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, users)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	got, err := client.GetContainer(userScopeContext(ownerID), &coreapi.ContainerActionRequest{ContainerId: container.ID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, container.ID.String(), got.GetId())
+	require.Equal(t, "docker-web", got.GetDockerId())
+	require.Equal(t, "web", got.GetName())
+	require.Equal(t, "nginx:latest", got.GetImageTag())
+	require.EqualValues(t, 8080, got.GetInternalPort())
+	require.Equal(t, "app", got.GetDomainPrefix())
+	require.Equal(t, model.ContainerStatusExited, got.GetStatus())
+	require.Equal(t, model.ContainerStatusExited, got.GetDesiredStatus())
+	require.Equal(t, ownerID.String(), got.GetOwnerId())
+	require.Equal(t, "alice", got.GetOwnerUsername())
+	require.Equal(t, projectID.String(), got.GetProjectId())
+	require.NotNil(t, got.LastExitCode)
+	require.EqualValues(t, 137, got.GetLastExitCode())
+	require.EqualValues(t, 512<<20, got.GetMemoryReservationBytes())
+	require.EqualValues(t, 750, got.GetCpuReservationMillicores())
+}
+
+func TestContainerGRPCHandlerGetRejectsBadRequests(t *testing.T) {
+	containerID := uuid.New()
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		id       string
+		logicErr error
+		want     codes.Code
+	}{
+		{name: "malformed id", ctx: userScopeContext(uuid.New()), id: "not-a-uuid", want: codes.InvalidArgument},
+		{name: "system scope", ctx: systemScopeContext(), id: containerID.String(), want: codes.PermissionDenied},
+		{name: "not found", ctx: userScopeContext(uuid.New()), id: containerID.String(), logicErr: apperrors.ErrNotFound, want: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := coregrpcmocks.NewMockContainerLogic(t)
+			if tt.logicErr != nil {
+				logic.EXPECT().Get(mock.Anything, containerID).Return(model.Container{}, tt.logicErr)
+			}
+			conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+				coregrpc.RegisterContainerAPI(s, logic, nil)
+			})
+
+			_, err := coreapi.NewContainerAPIClient(conn).GetContainer(tt.ctx, &coreapi.ContainerActionRequest{ContainerId: tt.id})
+
+			require.Equal(t, tt.want, status.Code(err))
+		})
+	}
+}
+
+// The owner sees the current limit beside the standard one, so a borrowed
+// limit is visible.
+func TestContainerGRPCHandlerMapsStats(t *testing.T) {
+	containerID := uuid.New()
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().GetStats(mock.Anything, containerID).Return(model.ContainerStats{
+		CPUPercentage: 12.5, MemoryUsageBytes: 900, MemoryLimitBytes: 1536, MemoryStandardLimitBytes: 1024,
+		NetworkRxBytes: 7, NetworkTxBytes: 8,
+	}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, nil)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	stats, err := client.GetContainerStats(userScopeContext(uuid.New()), &coreapi.ContainerActionRequest{ContainerId: containerID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, 12.5, stats.GetCpuPercentage())
+	require.EqualValues(t, 900, stats.GetMemoryUsageBytes())
+	require.EqualValues(t, 1536, stats.GetMemoryLimitBytes())
+	require.EqualValues(t, 1024, stats.GetMemoryStandardLimitBytes())
+	require.EqualValues(t, 7, stats.GetNetworkRxBytes())
+	require.EqualValues(t, 8, stats.GetNetworkTxBytes())
+}
+
+func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
+	ownerID := uuid.New()
+	volumeID := uuid.New()
+	containerID := uuid.New()
+	logic := coregrpcmocks.NewMockVolumeLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	var createParams model.VolumeCreateParams
+	logic.EXPECT().
+		Create(mock.Anything, mock.AnythingOfType("model.VolumeCreateParams")).
+		Run(func(ctx context.Context, params model.VolumeCreateParams) {
+			createParams = params
+		}).
+		Return(volumeID, nil)
+	logic.EXPECT().List(mock.Anything, 10, 0).Return([]model.Volume{{
+		ID:         volumeID,
+		OwnerID:    ownerID,
+		Name:       "data",
+		DockerName: "vol_data",
+		Status:     model.VolumeStatusAvailable,
+		CreatedAt:  time.Unix(321, 0),
+		UsedBytes:  128,
+		SizeBytes:  64 << 20,
+		UsedBy:     []model.ContainerRef{{ContainerID: containerID, Name: "web"}},
+	}}, 1, nil)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	logic.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterVolumeAPI(s, logic, users)
+	})
+	client := coreapi.NewVolumeAPIClient(conn)
+	ctx := userScopeContext(ownerID)
+
+	createResp, err := client.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data", SizeBytes: 32 << 20})
+	require.NoError(t, err)
+	require.Equal(t, volumeID.String(), createResp.VolumeId)
+	require.Equal(t, "data", createParams.Name)
+	require.EqualValues(t, 32<<20, createParams.SizeBytes)
+
+	listResp, err := client.ListVolumes(ctx, &coreapi.PaginationRequest{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listResp.Volumes, 1)
+	require.Equal(t, "data", listResp.Volumes[0].Name)
+	require.Equal(t, "alice", listResp.Volumes[0].OwnerUsername)
+	require.EqualValues(t, 128, listResp.Volumes[0].UsedBytes)
+	require.EqualValues(t, 64<<20, listResp.Volumes[0].SizeBytes)
+	require.False(t, listResp.Volumes[0].SizeEnforced)
+	require.Len(t, listResp.Volumes[0].UsedBy, 1)
+	require.Equal(t, containerID.String(), listResp.Volumes[0].UsedBy[0].ContainerId)
+	require.Equal(t, "web", listResp.Volumes[0].UsedBy[0].Name)
+
+	_, err = client.DeleteVolume(ctx, &coreapi.VolumeActionRequest{VolumeId: volumeID.String()})
+	require.NoError(t, err)
+}
+
+// Every runtime setting crosses the SystemAPI in both directions, and nothing
+// of the fixed part does: a read fills every field of the message, and an
+// update carrying that message onto a snapshot with other settings yields the
+// settings that were read and the fixed part of that snapshot.
+func TestSystemGRPCHandlerCarriesEveryRuntimeSetting(t *testing.T) {
+	var stored config.SystemConfig
+	fieldfill.Distinct(t, &stored)
+	stored.Fixed = coretest.SystemConfig().Fixed
+	current := stored
+	logic := coregrpcmocks.NewMockSystemLogic(t)
+	logic.EXPECT().GetConfig(mock.Anything).RunAndReturn(func(context.Context) config.SystemConfig { return current })
+	var updated config.SystemConfig
+	logic.EXPECT().
+		UpdateConfig(mock.Anything, mock.AnythingOfType("config.SystemConfig")).
+		Run(func(_ context.Context, cfg config.SystemConfig) { updated = cfg }).
+		Return(nil).
+		Once()
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterSystemAPI(s, logic)
+	})
+	client := coreapi.NewSystemAPIClient(conn)
+	ctx := adminScopeContext(uuid.New())
+
+	got, err := client.GetConfig(ctx, &coreapi.Empty{})
+	require.NoError(t, err)
+	fields := got.ProtoReflect().Descriptor().Fields()
+	for i := range fields.Len() {
+		require.Truef(t, got.ProtoReflect().Has(fields.Get(i)), "a read leaves %s unset", fields.Get(i).Name())
+	}
+
+	otherFixed := stored.Fixed
+	otherFixed.BaseDomain = "other.example.test"
+	otherFixed.TTLWorkerIntervalSeconds = 77
+	current = config.SystemConfig{Fixed: otherFixed}
+	_, err = client.UpdateConfig(ctx, got)
+	require.NoError(t, err)
+	want := stored
+	want.Fixed = otherFixed
+	require.Equal(t, want, updated)
+}
+
+func TestSystemGRPCHandlerMapsBuilderConfigAndErrors(t *testing.T) {
+	initial := coretest.SystemConfig()
+	initial.BuildMaxDiskBytes = 3 << 30
+	initial.BuildCPUMillicores = 2500
+	initial.BuildCPUPeriod = 50000
+	logic := coregrpcmocks.NewMockSystemLogic(t)
+	logic.EXPECT().GetConfig(mock.Anything).Return(initial)
+	logic.EXPECT().UpdateConfig(mock.Anything, mock.AnythingOfType("config.SystemConfig")).Return(apperrors.ErrBadRequest).Once()
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterSystemAPI(s, logic)
+	})
+	client := coreapi.NewSystemAPIClient(conn)
+
+	builderCfg, err := client.GetBuilderRuntimeConfig(systemScopeContext(), &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, int64(3<<30), builderCfg.GetBuildMaxDiskBytes(), "Builder receives the build disk cap")
+	require.Equal(t, int64(125000), builderCfg.GetBuildCpuQuota(), "2.5 cores of a 50000 period")
+	require.Equal(t, int64(50000), builderCfg.GetBuildCpuPeriod())
+	require.Equal(t, initial.KanikoImage, builderCfg.GetKanikoImage())
+
+	_, err = client.UpdateConfig(adminScopeContext(uuid.New()), &coreapi.SystemConfigData{})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
+	ownerID := uuid.New()
+	imageID := uuid.New()
+	buildID := uuid.New()
+	imageUserID := uuid.New()
+	finishedAt := time.Unix(200, 0)
+	imageLogic := coregrpcmocks.NewMockImageLogic(t)
+	buildLogic := coregrpcmocks.NewMockBuildLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	build := model.Build{
+		ID:           buildID,
+		ImageID:      imageID,
+		OwnerID:      ownerID,
+		Status:       model.BuildStatusRunning,
+		LogObjectKey: "build-logs/demo.log",
+		Source:       model.BuildSource{Kind: model.BuildSourceGit, Location: "https://github.com/acme/app.git", Ref: "main"},
+		StartedAt:    time.Unix(150, 0),
+		FinishedAt:   &finishedAt,
+	}
+	imageLogic.EXPECT().List(mock.Anything, 10, 0).Return([]model.Image{{
+		ID:        imageID,
+		OwnerID:   ownerID,
+		Tag:       "demo:latest",
+		SizeBytes: 12<<20 + 1,
+		Status:    model.ImageStatusAvailable,
+		CreatedAt: time.Unix(100, 0),
+		UsedBy:    []model.ContainerRef{{ContainerID: imageUserID, Name: "web"}},
+	}}, 1, nil)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil).Maybe()
+	buildLogic.EXPECT().StartBuildRecord(mock.Anything, buildID).Return(build, true, nil)
+	buildLogic.EXPECT().GetBuild(mock.Anything, buildID).Return(build, nil)
+	var completedStatus string
+	var completedSize int
+	buildLogic.EXPECT().
+		CompleteBuildRecord(mock.Anything, buildID, imageID, model.BuildStatusSuccess, 20).
+		Run(func(ctx context.Context, gotBuildID, gotImageID uuid.UUID, status string, sizeMB int) {
+			completedStatus = status
+			completedSize = sizeMB
+		}).
+		Return(nil)
+	imageLogic.EXPECT().Delete(mock.Anything, imageID).Return(nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterImageAPI(s, imageLogic, buildLogic, users)
+	})
+	client := coreapi.NewImageAPIClient(conn)
+	userCtx := userScopeContext(ownerID)
+	systemCtx := systemScopeContext()
+
+	images, err := client.ListImages(userCtx, &coreapi.PaginationRequest{Limit: 10, Page: 1})
+	require.NoError(t, err)
+	require.Len(t, images.Images, 1)
+	require.Equal(t, "alice", images.Images[0].OwnerUsername)
+	require.Equal(t, int64(12<<20+1), images.Images[0].SizeBytes)
+	require.Len(t, images.Images[0].UsedBy, 1)
+	require.Equal(t, imageUserID.String(), images.Images[0].UsedBy[0].ContainerId)
+	require.Equal(t, "web", images.Images[0].UsedBy[0].Name)
+
+	started, err := client.StartBuildRecord(systemCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.True(t, started.Started)
+	require.Equal(t, imageID.String(), started.ImageId)
+
+	buildResp, err := client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.Equal(t, "build-logs/demo.log", buildResp.LogObjectKey)
+	require.Equal(t, string(model.BuildSourceGit), buildResp.SourceKind)
+	require.Equal(t, "https://github.com/acme/app.git", buildResp.SourceLocation)
+	require.Equal(t, "main", buildResp.SourceRef)
+	require.Equal(t, finishedAt.Unix(), buildResp.FinishedAt)
+
+	_, err = client.CompleteBuildRecord(systemCtx, &coreapi.CompleteBuildRequest{BuildId: buildID.String(), ImageId: imageID.String(), Status: model.BuildStatusSuccess, SizeMb: 20})
+	require.NoError(t, err)
+	require.Equal(t, model.BuildStatusSuccess, completedStatus)
+	require.Equal(t, 20, completedSize)
+
+	_, err = client.DeleteImage(userCtx, &coreapi.ImageActionRequest{ImageId: imageID.String()})
+	require.NoError(t, err)
+
+	_, err = client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	errMsg := "failed"
+	projectLogic := coregrpcmocks.NewMockProjectLogic(t)
+	statsLogic := coregrpcmocks.NewMockStatsLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	projectLogic.EXPECT().List(mock.Anything, 20, 20).Return([]model.Project{{
+		ID:           projectID,
+		OwnerID:      ownerID,
+		Name:         "demo",
+		Status:       model.ProjectStatusFailed,
+		ErrorMessage: &errMsg,
+		CreatedAt:    time.Unix(100, 0),
+	}}, 1, nil)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	projectLogic.EXPECT().Cancel(mock.Anything, projectID).Return(nil)
+	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, CPUUsedMillicores: 750, CPUQuotaMillicores: 2000, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
+	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, DCMReservedCPUMillicores: 750, DCMReservedBuildCPUMillicores: 500, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, VolumeSizeMode: model.VolumeSizeUnavailable, DCMDiskUsedBytes: 20, DCMReservedVolumeBytes: 40, DCMUnusedVolumePromiseBytes: 35, BuildClaimCap: 1, MaxConcurrentBuilds: 2, BuildsActive: 3, CPUTotalMillicores: 4000, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterProjectAPI(s, projectLogic, users)
+		coregrpc.RegisterStatsAPI(s, statsLogic)
+	})
+	projectClient := coreapi.NewProjectAPIClient(conn)
+	statsClient := coreapi.NewStatsAPIClient(conn)
+	userCtx := userScopeContext(ownerID)
+	adminCtx := adminScopeContext(uuid.New())
+
+	projects, err := projectClient.ListProjects(userCtx, &coreapi.PaginationRequest{Limit: 20, Page: 2})
+	require.NoError(t, err)
+	require.Len(t, projects.Projects, 1)
+	require.Equal(t, "alice", projects.Projects[0].OwnerUsername)
+	require.Equal(t, errMsg, projects.Projects[0].ErrorMessage)
+
+	_, err = projectClient.CancelProject(userCtx, &coreapi.ProjectActionRequest{ProjectId: projectID.String()})
+	require.NoError(t, err)
+
+	userStats, err := statsClient.GetUserStats(userCtx, &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, int32(2), userStats.ContainersTotal)
+	require.EqualValues(t, 128, userStats.RamUsedBytes)
+	require.EqualValues(t, 750, userStats.CpuUsedMillicores)
+	require.EqualValues(t, 2000, userStats.CpuQuotaMillicores)
+
+	systemStats, err := statsClient.GetSystemMonitoring(adminCtx, &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, 12.5, systemStats.CpuPercent)
+	require.EqualValues(t, 30, systemStats.GetDcmBorrowedMemoryBytes())
+	require.EqualValues(t, 750, systemStats.GetDcmReservedCpuMillicores())
+	require.EqualValues(t, 500, systemStats.GetDcmReservedBuildCpuMillicores())
+	require.EqualValues(t, 3, systemStats.GetBuildsActive())
+	require.EqualValues(t, 4000, systemStats.GetCpuTotalMillicores())
+	require.Equal(t, "not_enforced", systemStats.GetRootfsQuotaStatus())
+	require.EqualValues(t, 40, systemStats.GetDcmReservedVolumeBytes())
+	require.EqualValues(t, 35, systemStats.GetDcmUnusedVolumePromiseBytes())
+	require.EqualValues(t, 1, systemStats.GetBuildClaimCap())
+	require.EqualValues(t, 2, systemStats.GetMaxConcurrentBuilds())
+	require.Equal(t, "unavailable", systemStats.GetVolumeSizeMode())
+	require.Equal(t, int64(999), systemStats.ObservedAt)
+}
+
+func TestProjectGRPCHandlerMapsGet(t *testing.T) {
+	ownerID := uuid.New()
+	errMsg := "build failed"
+	project := model.Project{
+		ID: uuid.New(), OwnerID: ownerID, Name: "shop", Status: model.ProjectStatusFailed,
+		ErrorMessage: &errMsg, CreatedAt: time.Unix(100, 0),
+	}
+	logic := coregrpcmocks.NewMockProjectLogic(t)
+	logic.EXPECT().Get(mock.Anything, project.ID).Return(project, nil)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterProjectAPI(s, logic, users)
+	})
+
+	got, err := coreapi.NewProjectAPIClient(conn).GetProject(userScopeContext(ownerID), &coreapi.ProjectActionRequest{ProjectId: project.ID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, project.ID.String(), got.GetId())
+	require.Equal(t, "shop", got.GetName())
+	require.Equal(t, model.ProjectStatusFailed, got.GetStatus())
+	require.Equal(t, errMsg, got.GetErrorMessage())
+	require.Equal(t, errMsg, got.GetLastError())
+	require.EqualValues(t, 100, got.GetCreatedAt())
+	require.Equal(t, ownerID.String(), got.GetOwnerId())
+	require.Equal(t, "alice", got.GetOwnerUsername())
+}
+
+func TestProjectGRPCHandlerGetRejectsBadRequests(t *testing.T) {
+	projectID := uuid.New()
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		id       string
+		logicErr error
+		want     codes.Code
+	}{
+		{name: "malformed id", ctx: userScopeContext(uuid.New()), id: "not-a-uuid", want: codes.InvalidArgument},
+		{name: "system scope", ctx: systemScopeContext(), id: projectID.String(), want: codes.PermissionDenied},
+		{name: "not found", ctx: userScopeContext(uuid.New()), id: projectID.String(), logicErr: apperrors.ErrNotFound, want: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := coregrpcmocks.NewMockProjectLogic(t)
+			if tt.logicErr != nil {
+				logic.EXPECT().Get(mock.Anything, projectID).Return(model.Project{}, tt.logicErr)
+			}
+			conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+				coregrpc.RegisterProjectAPI(s, logic, nil)
+			})
+
+			_, err := coreapi.NewProjectAPIClient(conn).GetProject(tt.ctx, &coreapi.ProjectActionRequest{ProjectId: tt.id})
+
+			require.Equal(t, tt.want, status.Code(err))
+		})
+	}
+}
+
+func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
+	ownerID := uuid.New()
+	actorID := uuid.New()
+	eventID := uuid.New()
+	from := time.Unix(1000, 0).UTC()
+	to := time.Unix(2000, 0).UTC()
+	logic := coregrpcmocks.NewMockReportLogic(t)
+	var overviewFrom time.Time
+	var overviewTo time.Time
+	var usageSort string
+	var usageSearch string
+	var usageLimit int
+	var usageOffset int
+	var timelineOwnerID uuid.UUID
+	var auditFilters model.AuditEventFilters
+	var recorded model.AuditEvent
+	lastSnapshotAt := from.Add(5 * time.Minute)
+	logic.EXPECT().
+		GetReportsOverview(mock.Anything, from, to).
+		Run(func(ctx context.Context, gotFrom, gotTo time.Time) {
+			overviewFrom = gotFrom
+			overviewTo = gotTo
+		}).
+		Return(model.ReportsOverview{
+			From:                         from,
+			To:                           to,
+			AuditEventsTotal:             10,
+			FailedActionsTotal:           2,
+			ActiveUsersTotal:             3,
+			MemoryUsageBytes:             900,
+			ReservedMemoryBytes:          1024,
+			CPUPercent:                   12.5,
+			TotalDiskBytes:               2048,
+			ResourcesTotal:               20,
+			ContainersTotal:              2,
+			ContainersRunning:            1,
+			VolumesTotal:                 3,
+			ImagesTotal:                  4,
+			BuildsTotal:                  5,
+			ProjectsTotal:                6,
+			LastUsageSnapshotAt:          &lastSnapshotAt,
+			UsageSnapshotIntervalSeconds: 300,
+			TopActions:                   []model.ActionCount{{Action: "container.create", Count: 5}},
+		}, nil)
+	logic.EXPECT().
+		ListUserUsageReport(mock.Anything, from, to, "disk_desc", "ali", 10, 10).
+		Run(func(ctx context.Context, gotFrom, gotTo time.Time, sort, search string, limit, offset int) {
+			usageSort = sort
+			usageSearch = search
+			usageLimit = limit
+			usageOffset = offset
+		}).
+		Return([]model.UserUsageReportItem{{
+			OwnerID:             ownerID,
+			OwnerUsername:       "alice",
+			MemoryUsageBytes:    384,
+			ReservedMemoryBytes: 512,
+			CPUPercent:          7.5,
+			TotalDiskBytes:      1024,
+			ResourcesTotal:      20,
+			ContainersTotal:     2,
+			ContainersRunning:   1,
+			VolumesTotal:        3,
+			ImagesTotal:         4,
+			BuildsTotal:         5,
+			ProjectsTotal:       6,
+			ActionsTotal:        7,
+		}}, 1, nil)
+	logic.EXPECT().
+		GetUserUsageTimeline(mock.Anything, ownerID, from, to).
+		Run(func(ctx context.Context, gotOwnerID uuid.UUID, gotFrom, gotTo time.Time) {
+			timelineOwnerID = gotOwnerID
+		}).
+		Return([]model.UserUsagePoint{{
+			BucketStart:         from,
+			MemoryUsageBytes:    64,
+			ReservedMemoryBytes: 128,
+			CPUPercent:          2.5,
+			TotalDiskBytes:      256,
+			ResourcesTotal:      14,
+			ContainersTotal:     2,
+			ContainersRunning:   1,
+			VolumesTotal:        3,
+			ImagesTotal:         4,
+			BuildsTotal:         5,
+			ProjectsTotal:       6,
+			ActionsTotal:        4,
+		}}, nil)
+	logic.EXPECT().
+		ListAuditEvents(mock.Anything, mock.AnythingOfType("model.AuditEventFilters")).
+		Run(func(ctx context.Context, filters model.AuditEventFilters) {
+			auditFilters = filters
+		}).
+		Return([]model.AuditEvent{{
+			ID:            eventID,
+			OccurredAt:    from,
+			ActorUserID:   &actorID,
+			ActorUsername: "admin",
+			ActorScope:    "admin",
+			Action:        "container.delete",
+			Outcome:       "success",
+			ResourceType:  "container",
+			ResourceID:    "docker-id",
+			ResourceName:  "web",
+			OwnerID:       &ownerID,
+			OwnerUsername: "alice",
+			RequestID:     "req-1",
+			ClientIP:      "127.0.0.1",
+			UserAgent:     "tests",
+			DetailsJSON:   `{"safe":true}`,
+		}}, 1, nil)
+	logic.EXPECT().
+		RecordAuditEvent(mock.Anything, mock.AnythingOfType("model.AuditEvent")).
+		Run(func(ctx context.Context, event model.AuditEvent) {
+			recorded = event
+		}).
+		Return(nil)
+	logic.EXPECT().
+		RefreshUsageSnapshots(mock.Anything).
+		Return(model.UsageSnapshotCollection{BucketStart: from, CollectedAt: to, SnapshotsCount: 2}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterReportAPI(s, logic)
+	})
+	client := coreapi.NewReportAPIClient(conn)
+
+	overview, err := client.GetReportsOverview(context.Background(), &coreapi.ReportRangeRequest{From: from.Unix(), To: to.Unix()})
+	require.NoError(t, err)
+	require.Equal(t, int64(10), overview.AuditEventsTotal)
+	require.Equal(t, int64(900), overview.MemoryUsageBytes)
+	require.Equal(t, int64(1024), overview.ReservedMemoryBytes)
+	require.Equal(t, 12.5, overview.CpuPercent)
+	require.Equal(t, int64(20), overview.ResourcesTotal)
+	require.Equal(t, lastSnapshotAt.Unix(), overview.LastUsageSnapshotAt)
+	require.Equal(t, int64(300), overview.UsageSnapshotIntervalSeconds)
+	require.Len(t, overview.TopActions, 1)
+	require.Equal(t, "container.create", overview.TopActions[0].Action)
+	require.Equal(t, from, overviewFrom)
+	require.Equal(t, to, overviewTo)
+
+	usage, err := client.ListUserUsageReport(context.Background(), &coreapi.ListUserUsageReportRequest{
+		From: from.Unix(), To: to.Unix(), Sort: "disk_desc", Search: "ali", Page: 2, Limit: 10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), usage.TotalCount)
+	require.Equal(t, ownerID.String(), usage.Users[0].OwnerId)
+	require.Equal(t, int64(384), usage.Users[0].MemoryUsageBytes)
+	require.Equal(t, 7.5, usage.Users[0].CpuPercent)
+	require.Equal(t, int32(20), usage.Users[0].ResourcesTotal)
+	require.Equal(t, "disk_desc", usageSort)
+	require.Equal(t, "ali", usageSearch)
+	require.Equal(t, 10, usageLimit)
+	require.Equal(t, 10, usageOffset)
+
+	timeline, err := client.GetUserUsageTimeline(context.Background(), &coreapi.GetUserUsageTimelineRequest{
+		OwnerId: ownerID.String(), From: from.Unix(), To: to.Unix(),
+	})
+	require.NoError(t, err)
+	require.Len(t, timeline.Points, 1)
+	require.Equal(t, int64(64), timeline.Points[0].MemoryUsageBytes)
+	require.Equal(t, int64(128), timeline.Points[0].ReservedMemoryBytes)
+	require.Equal(t, 2.5, timeline.Points[0].CpuPercent)
+	require.Equal(t, int32(14), timeline.Points[0].ResourcesTotal)
+	require.Equal(t, ownerID, timelineOwnerID)
+
+	events, err := client.ListAuditEvents(context.Background(), &coreapi.ListAuditEventsRequest{
+		From: from.Unix(), To: to.Unix(), ActorUserId: actorID.String(), Action: "container.delete",
+		Outcome: "success", ResourceType: "container", Search: "web", Page: 3, Limit: 5,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), events.TotalCount)
+	require.Equal(t, eventID.String(), events.Events[0].Id)
+	require.Equal(t, ownerID.String(), events.Events[0].OwnerId)
+	require.Equal(t, actorID, *auditFilters.ActorUserID)
+	require.Equal(t, "container.delete", auditFilters.Action)
+	require.Equal(t, 5, auditFilters.Limit)
+	require.Equal(t, 10, auditFilters.Offset)
+
+	_, err = client.RecordAuditEvent(context.Background(), &coreapi.AuditEventData{
+		Id: eventID.String(), OccurredAt: to.Unix(), ActorUserId: actorID.String(), OwnerId: ownerID.String(),
+		ActorUsername: "admin", Action: "image.push", Outcome: "failed", ErrorCode: "denied",
+	})
+	require.NoError(t, err)
+	require.Equal(t, eventID, recorded.ID)
+	require.Equal(t, actorID, *recorded.ActorUserID)
+	require.Equal(t, ownerID, *recorded.OwnerID)
+	require.Equal(t, "denied", recorded.ErrorCode)
+
+	refresh, err := client.RefreshUsageSnapshots(context.Background(), &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, from.Unix(), refresh.BucketStart)
+	require.Equal(t, to.Unix(), refresh.CollectedAt)
+	require.Equal(t, int32(2), refresh.SnapshotsCount)
+
+	_, err = client.GetUserUsageTimeline(context.Background(), &coreapi.GetUserUsageTimelineRequest{OwnerId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.ListAuditEvents(context.Background(), &coreapi.ListAuditEventsRequest{ActorUserId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func newCoreGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
+	t.Helper()
+	listener := bufconn.Listen(1024 * 1024)
+	// The handler tests allow one caller every call and scope kind; Core's
+	// caller policies are tested against a real server in grpc_core.
+	callers, err := internalauth.NewAuthenticator(internalauth.CallerPolicy{
+		Caller: internalauth.CallerGateway, Credential: "test-gateway-token", Methods: internalauth.AllMethods(),
+		Scopes: []accessscope.Kind{accessscope.KindUser, accessscope.KindAdmin, accessscope.KindSystem},
+	})
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.UnaryInterceptor(callers.UnaryServerInterceptor()))
+	register(server)
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		server.Stop()
+		_ = listener.Close()
+	})
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(defaultSystemScope, internalauth.UnaryClientInterceptor("test-gateway-token")),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+// defaultSystemScope states system scope for a test call whose context holds
+// none, so handler tests without a scope exercise the handler, not the
+// required-scope refusal.
+func defaultSystemScope(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if _, ok := accessscope.FromContext(ctx); !ok {
+		ctx = accessscope.WithSystemScope(ctx)
+	}
+	return invoker(ctx, method, req, reply, cc, opts...)
+}
+
+func userScopeContext(ownerID uuid.UUID) context.Context {
+	return accessscope.WithUserScope(context.Background(), ownerID, "user", "user")
+}
+
+func adminScopeContext(adminID uuid.UUID) context.Context {
+	return accessscope.WithAdminScope(context.Background(), adminID, "admin", "admin")
+}
+
+func systemScopeContext() context.Context {
+	return accessscope.WithSystemScope(context.Background())
+}
+
+// A build that ended without an image (failed, canceled, or its image was
+// replaced or deleted) names no image on the wire, never the all-zero UUID.
+func TestBuildGRPCHandlerOmitsAMissingImageID(t *testing.T) {
+	ownerID, buildID := uuid.New(), uuid.New()
+	imageLogic := coregrpcmocks.NewMockImageLogic(t)
+	buildLogic := coregrpcmocks.NewMockBuildLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	ended := model.Build{ID: buildID, OwnerID: ownerID, Tag: "app:v1", Status: model.BuildStatusFailed, CreatedAt: time.Unix(100, 0)}
+	buildLogic.EXPECT().StartBuildRecord(mock.Anything, buildID).Return(ended, false, nil)
+	buildLogic.EXPECT().GetBuild(mock.Anything, buildID).Return(ended, nil)
+	users.EXPECT().GetUsers(mock.Anything, mock.Anything).Return(map[uuid.UUID]model.UserInfo{}, nil).Maybe()
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterImageAPI(s, imageLogic, buildLogic, users)
+	})
+	client := coreapi.NewImageAPIClient(conn)
+
+	started, err := client.StartBuildRecord(systemScopeContext(), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.False(t, started.Started)
+	require.Empty(t, started.ImageId)
+
+	got, err := client.GetBuild(userScopeContext(ownerID), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.Empty(t, got.ImageId)
+	require.Equal(t, "app:v1", got.Tag)
+}

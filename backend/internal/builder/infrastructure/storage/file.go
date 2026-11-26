@@ -4,14 +4,15 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 )
 
 type FileManager struct {
@@ -50,7 +51,10 @@ func (fm *FileManager) ValidateArchive(filePath, contextDir, dockerfile string) 
 }
 
 func (fm *FileManager) CleanUp(filePath string) error {
-	return os.Remove(filePath)
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (fm *FileManager) checkZip(filePath, expectedDockerfile string) error {
@@ -58,7 +62,7 @@ func (fm *FileManager) checkZip(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrBadRequest
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }() // read-only archive; close failure is not actionable
 
 	for _, f := range r.File {
 		if !f.FileInfo().IsDir() && cleanArchiveEntryName(f.Name) == expectedDockerfile {
@@ -74,12 +78,12 @@ func (fm *FileManager) checkTar(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrInternal
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only archive; close failure is not actionable
 
 	tr := tar.NewReader(f)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -98,18 +102,18 @@ func (fm *FileManager) checkTarGz(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrInternal
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only archive; close failure is not actionable
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return apperrors.ErrBadRequest
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }() // read-only stream; close failure is not actionable
 
 	tr := tar.NewReader(gzr)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

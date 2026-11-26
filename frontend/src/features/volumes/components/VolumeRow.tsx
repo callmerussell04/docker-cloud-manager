@@ -1,75 +1,132 @@
-import { Trash2, HardDrive, AlertTriangle } from 'lucide-react';
-import { type VolumeData } from '../types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
-import { useDeleteVolume } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
+import { getServerErrorMessage } from '@/shared/api/apiError';
+import type { Scope } from '@/shared/api/scope';
+import { useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { useNowSeconds } from '@/shared/lib/hooks';
+import { joinNames } from '@/shared/lib/names';
+import { cn, formatBytes } from '@/shared/lib/utils';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { ListRow, RowEnd, RowMenu } from '@/shared/ui/List';
+import { MenuItem, MenuNote } from '@/shared/ui/Menu';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Dot } from '@/shared/ui/StatusDot';
+import {
+  volumeDeleteBlock,
+  volumeDeleteConsequence,
+  volumeStatusLabel,
+  volumeTone,
+  volumeUsersLabel,
+  type VolumeData,
+} from '../model';
+import { useDeleteVolume } from '../queries';
+import { volumeListLayout } from './listLayout';
 
 interface VolumeRowProps {
   volume: VolumeData;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
-export function VolumeRow({ volume }: VolumeRowProps) {
+// VolumeRow is a volume's line in the list: its name, its status with the
+// failure after it, the space it takes of its size, the containers using it
+// and its age. A volume has no page, so the row opens nothing; its menu holds
+// Delete, disabled with the reason while containers use the volume or a
+// worker is still creating or deleting it. Compact rows are the name, then
+// status, size and age.
+export function VolumeRow({ volume, scope = 'own', owner }: VolumeRowProps) {
   const t = useT();
-  const locale = useLocale();
+  const compact = useShellLayout().rowsCompact;
+  const now = useNowSeconds(60_000);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const deleteMutation = useDeleteVolume();
+  const deleteMutation = useDeleteVolume(scope);
 
-  const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString(dateLocale(locale), {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
-  
-  const displayName = volume.name || t('volumes.name');
-  const isMissing = volume.status === 'missing';
+  const failure = getServerErrorMessage(volume.last_error, t);
+  const statusLabel = volumeStatusLabel(t, volume.status);
+  const age = ageOf(volume.created_at, now);
+  const ageLabel = t(`common.age.${age.unit}`, { count: age.count });
+  const users = volumeUsersLabel(t, volume.used_by);
+  const deleteBlock = volumeDeleteBlock(volume);
+
+  const measured = volume.usage_observed_at > 0;
+  const overSize = measured && volume.size_bytes > 0 && volume.used_bytes > volume.size_bytes;
+  const sizeLabel = measured
+    ? t('volumes.usageOfSize', { used: formatBytes(volume.used_bytes, 1), size: formatBytes(volume.size_bytes, 1) })
+    : formatBytes(volume.size_bytes, 1);
+  const sizeTitle = [
+    overSize ? t('volumes.overSize') : measured ? null : t('volumes.notMeasured'),
+    volume.size_enforced ? null : t('volumes.sizeMeasuredHint'),
+  ].filter(Boolean).join(' ');
+
+  const size = (
+    <span title={sizeTitle} className={cn('tabular-nums', overSize && 'text-red-text')}>{sizeLabel}</span>
+  );
+  const detail = failure ? <span className="text-red-text">{failure}</span> : null;
+
+  const menu = (
+    <RowMenu label={t('volumes.rowActions', { name: volume.name })} sheetTitle={volume.name}>
+      <MenuItem icon={Trash2} danger disabled={!!deleteBlock || deleteMutation.isPending} onSelect={() => setIsConfirmOpen(true)}>
+        {t('common.delete')}
+      </MenuItem>
+      {deleteBlock === 'inUse' && (
+        <MenuNote>{t('volumes.deleteBlockedInUse', { names: joinNames(volume.used_by) })}</MenuNote>
+      )}
+      {deleteBlock === 'busy' && <MenuNote>{t('volumes.deleteBlockedBusy')}</MenuNote>}
+    </RowMenu>
+  );
+
+  const confirm = (
+    <ConfirmDialog
+      isOpen={isConfirmOpen}
+      title={t('volumes.deleteConfirm', { name: volume.name })}
+      message={volumeDeleteConsequence(t, volume)}
+      confirmLabel={t('common.delete')}
+      isLoading={deleteMutation.isPending}
+      onCancel={() => setIsConfirmOpen(false)}
+      onConfirm={() => deleteMutation.mutate(volume.id, { onSuccess: () => setIsConfirmOpen(false) })}
+    />
+  );
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.volumes.grid, tableLayouts.volumes.minWidth)}>
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-          <HardDrive className="w-5 h-5" />
-        </div>
+    <ListRow template={compact ? volumeListLayout.compact : owner !== undefined ? volumeListLayout.owned : volumeListLayout.wide}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <Dot tone={volumeTone(volume.status)} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-base truncate" title={displayName}>{displayName}</h3>
+          <div className={cn('truncate font-semibold', compact ? 'text-[15px]' : 'text-[13.5px]')} title={volume.name}>
+            {volume.name}
+          </div>
+          {compact && (
+            <div className="mt-0.5 truncate text-[12.5px] text-label-2">
+              <span className="text-label">{statusLabel}</span>
+              {detail && <> · {detail}</>}
+              {owner && ` · ${owner}`}
+              {' · '}
+              {size}
+              {' · '}
+              {ageLabel}
+            </div>
+          )}
         </div>
       </div>
-
-      <div className="min-w-0 text-sm">
-        <span className={isMissing ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-          {statusLabel(t, volume.status)}
-        </span>
-      </div>
-
-      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
-        {formattedDate}
-        {volume.last_error && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={volume.last_error}>
-            <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{volume.last_error}</span>
+      {!compact && (
+        <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
+          <div className="truncate" title={failure || statusLabel}>
+            {statusLabel}
+            {detail && <> · {detail}</>}
           </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 justify-end shrink-0">
-        <button
-          onClick={() => setIsConfirmOpen(true)}
-          disabled={deleteMutation.isPending}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
-          title={t('common.delete')}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-        <ConfirmDialog
-          isOpen={isConfirmOpen}
-          title={t('confirm.title')}
-          message={t('volumes.deleteConfirm', { name: displayName })}
-          confirmLabel={t('common.delete')}
-          isLoading={deleteMutation.isPending}
-          onCancel={() => setIsConfirmOpen(false)}
-          onConfirm={() => deleteMutation.mutate(volume.id, { onSuccess: () => setIsConfirmOpen(false) })}
-        />
-      </div>
-    </div>
+          <div className="truncate">{size}</div>
+          <div className={cn('truncate', !users && 'text-label-3')} title={joinNames(volume.used_by) || undefined}>
+            {users ?? t('volumes.notUsed')}
+          </div>
+        </>
+      )}
+      <RowEnd age={ageLabel} menu={<>{menu}{confirm}</>} />
+    </ListRow>
   );
 }

@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("volumes: [data]\nservices:\n  web:\n    image: nginx\n")
+string("")

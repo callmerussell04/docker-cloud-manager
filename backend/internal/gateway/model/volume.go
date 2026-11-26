@@ -8,13 +8,19 @@ type Volume struct {
 	LastError       string
 	UsedBytes       int64
 	UsageObservedAt int64
+	SizeBytes       int64
+	SizeEnforced    bool
 	CreatedAt       int64
 	OwnerID         string
 	OwnerUsername   string
+	// UsedBy names the containers that mount the volume.
+	UsedBy []ContainerRef
 }
 
 type CreateVolumeInput struct {
 	Name string
+	// SizeBytes is zero for the default size.
+	SizeBytes int64
 }
 
 type VolumeMountInput struct {

@@ -1,2 +1,2 @@
 DROP TABLE IF EXISTS containers;
-
+DROP COLLATION IF EXISTS natural_order;

@@ -1,6 +1,6 @@
 services:
   core_test_db:
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -14,7 +14,7 @@ services:
       retries: 20
 
   sso_test_db:
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -28,20 +28,27 @@ services:
       retries: 20
 
   clickhouse_test:
-    image: clickhouse/clickhouse-server:25.5
+    image: clickhouse/clickhouse-server:25.5.11.15
     environment:
-      CLICKHOUSE_DB: dcm_reports_test
-      CLICKHOUSE_SKIP_USER_SETUP: "1"
+      CLICKHOUSE_DB: ${DCM_CLICKHOUSE_TEST_DB:-dcm_reports_test}
+      CLICKHOUSE_USER: ${DCM_CLICKHOUSE_TEST_USER:-dcm_reports_test}
+      CLICKHOUSE_PASSWORD: ${DCM_CLICKHOUSE_TEST_PASSWORD:-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ports:
       - "127.0.0.1:19002:9000"
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --host localhost --query 'SELECT 1'"]
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
       interval: 2s
       timeout: 5s
       retries: 30
 
   rabbitmq_test:
-    image: rabbitmq:4-management
+    image: rabbitmq:4.3.1-management
+    # The image runs as root with HOME=/var/lib/rabbitmq. A root healthcheck that
+    # lands after the entrypoint's chown but before the broker reads its Erlang
+    # cookie creates the cookie root-only, and the broker fails to boot (eacces).
+    # Running as rabbitmq gives the healthcheck the broker's own user.
+    user: rabbitmq
     ports:
       - "127.0.0.1:15692:5672"
       - "127.0.0.1:15693:15672"
@@ -52,7 +59,7 @@ services:
       retries: 30
 
   minio_test:
-    image: minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: minioadmin

@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
 
@@ -27,36 +26,24 @@ type ContainerOutboxConfigProvider interface {
 }
 
 type ContainerOutboxWorker struct {
-	repo      ContainerOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       ContainerOutboxConfigProvider
-	logger    *slog.Logger
+	repo   ContainerOutboxRepository
+	cfg    ContainerOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
-func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher BuildQueuePublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
+func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher OutboxPublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
+	logger = logging.WithComponent(logger, "container_outbox_worker")
 	return &ContainerOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "container_outbox_worker"),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("container", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *ContainerOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "container outbox worker started")
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().ContainerCreateOutboxIntervalSeconds) * time.Second
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "container outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
@@ -68,34 +55,33 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		op, err := w.repo.GetOperationByID(ctx, item.OperationID)
 		if err == nil && op.Status != model.OperationStatusPending {
-			_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, nil), "operation_id", item.OperationID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err), "operation_id", item.OperationID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkContainerOutboxPending(ctx, item.ID, err), "operation_id", item.OperationID)
 			continue
 		}
 		if _, err := w.repo.GetByID(ctx, item.ContainerID); err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err), "operation_id", item.OperationID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkContainerOutboxPending(ctx, item.ID, err), "operation_id", item.OperationID)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish container queue message", "container_id", item.ContainerID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkContainerOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark container outbox message published", "container_id", item.ContainerID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   []any{"container_id", item.ContainerID, "operation_id", item.OperationID},
+		}, w.repo.MarkContainerOutboxPublished, w.repo.MarkContainerOutboxPending)
 	}
 }

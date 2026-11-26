@@ -10,13 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 type FileManager interface {
@@ -27,6 +28,7 @@ type FileManager interface {
 type WorkspaceManager interface {
 	ArchivePath(buildID, objectKey string) string
 	Create(buildID string) (string, func(), error)
+	CleanUp(ctx context.Context, buildID string) error
 }
 
 type ArchiveExtractor interface {
@@ -37,11 +39,17 @@ type DockerAPI interface {
 	RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error)
 	WaitForBuild(ctx context.Context, containerID string) error
 	CleanBuildContainer(ctx context.Context, containerID string) error
+	// BuildDiskUsage reads how many bytes a build container has written to
+	// its writable layer.
+	BuildDiskUsage(ctx context.Context, containerID string) (int64, error)
+	// KillBuildContainer sends SIGKILL to a running build container, so it
+	// exits like a container the kernel's OOM killer stopped.
+	KillBuildContainer(ctx context.Context, containerID string) error
 }
 
 type LogManager interface {
 	SaveLogs(logID string, dockerStream io.Reader, maxLogSize int64) (string, error)
-	WriteSystemLog(logID string, message string) error
+	WriteSystemLog(ctx context.Context, logID string, message string, maxLogSize int64) error
 	IsLogSizeLimitExceeded(err error) bool
 	LogPath(logID string) string
 	Exists(logID string) (bool, error)
@@ -55,14 +63,41 @@ type ObjectStorage interface {
 }
 
 type CoreClient interface {
-	StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error)
-	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
-	GetBuildStatus(ctx context.Context, buildID string) (string, error)
+	StartBuildRecord(ctx context.Context, buildID string) (model.BuildClaim, bool, model.BuildStatus, error)
+	CompleteBuildRecord(ctx context.Context, buildID, imageID string, status model.BuildStatus, sizeMB int) error
+	GetBuildStatus(ctx context.Context, buildID string) (model.BuildStatus, error)
+}
+
+type BuildResultStore interface {
+	Load(ctx context.Context, buildID string) (model.BuildResult, bool, error)
+	Save(ctx context.Context, buildID string, result model.BuildResult) error
+	Delete(ctx context.Context, buildID string) error
+}
+
+// BuildNetworkAdmission refuses builds while the build network lacks tenant
+// isolation or its host policy is unhealthy.
+type BuildNetworkAdmission interface {
+	ValidateBuildNetwork(ctx context.Context, networkName string) error
 }
 
 const defaultBuildCancelPollInterval = 2 * time.Second
 
+// refusedClaimRetryDelay is how long a Builder waits before it claims again
+// a build Core refused because its claim cap is full.
+const refusedClaimRetryDelay = 5 * time.Second
+
+// buildCleanupTimeout bounds cleanup that must outlive the build's own context.
+const buildCleanupTimeout = 30 * time.Second
+
+// cleanupContext detaches cleanup from the build's cancellation while keeping
+// its request values, and bounds it so an unresponsive dependency cannot hold
+// the queue delivery.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), buildCleanupTimeout)
+}
+
 type buildJob struct {
+	Claim        model.BuildClaim
 	BuildID      string
 	ImageID      string
 	OwnerID      string
@@ -74,45 +109,75 @@ type buildJob struct {
 	LogObjectKey string
 }
 
-type BuilderService struct {
-	fileManager  FileManager
-	workspaces   WorkspaceManager
-	extractor    ArchiveExtractor
-	dockerAPI    DockerAPI
-	logManager   LogManager
-	objectStore  ObjectStorage
-	coreClient   CoreClient
-	config       *config.RuntimeManager
-	activeMu     sync.Mutex
-	active       map[string]context.CancelFunc
-	activeBuilds int
-	wg           sync.WaitGroup
-	logger       *slog.Logger
+// BuilderServiceDeps requires every execution dependency, including build
+// network admission, so tenant build-network isolation cannot be skipped.
+// Logger is optional and defaults to slog.Default.
+type BuilderServiceDeps struct {
+	Files            FileManager
+	Workspaces       WorkspaceManager
+	Extractor        ArchiveExtractor
+	Docker           DockerAPI
+	NetworkAdmission BuildNetworkAdmission
+	Logs             LogManager
+	ObjectStore      ObjectStorage
+	Core             CoreClient
+	Results          BuildResultStore
+	Config           *config.RuntimeManager
+	Logger           *slog.Logger
 }
 
-func NewBuilderService(
-	fileManager FileManager,
-	workspaces WorkspaceManager,
-	extractor ArchiveExtractor,
-	dockerAPI DockerAPI,
-	logManager LogManager,
-	objectStore ObjectStorage,
-	coreClient CoreClient,
-	config *config.RuntimeManager,
-	logger *slog.Logger,
-) *BuilderService {
-	return &BuilderService{
-		fileManager: fileManager,
-		workspaces:  workspaces,
-		extractor:   extractor,
-		dockerAPI:   dockerAPI,
-		logManager:  logManager,
-		objectStore: objectStore,
-		coreClient:  coreClient,
-		config:      config,
-		active:      make(map[string]context.CancelFunc),
-		logger:      logging.WithComponent(logger, "builder_service"),
+type BuilderService struct {
+	fileManager      FileManager
+	workspaces       WorkspaceManager
+	extractor        ArchiveExtractor
+	dockerAPI        DockerAPI
+	networkAdmission BuildNetworkAdmission
+	logManager       LogManager
+	objectStore      ObjectStorage
+	coreClient       CoreClient
+	results          BuildResultStore
+	retainedResults  map[string]model.BuildResult
+	handling         map[string]bool
+	config           *config.RuntimeManager
+	activeMu         sync.Mutex
+	active           map[string]context.CancelFunc
+	activeBuilds     int
+	wg               sync.WaitGroup
+	logger           *slog.Logger
+}
+
+func NewBuilderService(deps BuilderServiceDeps) (*BuilderService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"files", deps.Files}, {"workspaces", deps.Workspaces},
+		{"extractor", deps.Extractor}, {"docker", deps.Docker},
+		{"network admission", deps.NetworkAdmission}, {"logs", deps.Logs},
+		{"object store", deps.ObjectStore}, {"core", deps.Core},
+		{"results", deps.Results}, {"config", deps.Config},
 	}
+	for _, dependency := range required {
+		if nilcheck.IsNil(dependency.value) {
+			return nil, fmt.Errorf("builder service: %s is required", dependency.name)
+		}
+	}
+	return &BuilderService{
+		fileManager:      deps.Files,
+		workspaces:       deps.Workspaces,
+		extractor:        deps.Extractor,
+		dockerAPI:        deps.Docker,
+		networkAdmission: deps.NetworkAdmission,
+		logManager:       deps.Logs,
+		objectStore:      deps.ObjectStore,
+		coreClient:       deps.Core,
+		results:          deps.Results,
+		retainedResults:  make(map[string]model.BuildResult),
+		handling:         make(map[string]bool),
+		config:           deps.Config,
+		active:           make(map[string]context.CancelFunc),
+		logger:           logging.WithComponent(deps.Logger, "builder_service"),
+	}, nil
 }
 
 func (s *BuilderService) acquireBuildSlot(ctx context.Context, maxConcurrent int) bool {
@@ -172,11 +237,50 @@ func (s *BuilderService) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) (handleErr error) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
 	ctx = logging.ContextWithRequestID(ctx, msg.RequestID)
+	s.activeMu.Lock()
+	if s.handling[msg.BuildID] {
+		s.activeMu.Unlock()
+		return apperrors.New(apperrors.ErrUnavailable, "build execution is active")
+	}
+	s.handling[msg.BuildID] = true
+	result, retained := s.retainedResults[msg.BuildID]
+	s.activeMu.Unlock()
+	defer func() {
+		if handleErr == nil {
+			s.activeMu.Lock()
+			_, finalized := s.retainedResults[msg.BuildID]
+			s.activeMu.Unlock()
+			if finalized {
+				cleanupCtx, cancel := cleanupContext(ctx)
+				defer cancel()
+				if err := s.cleanupFinalizedBuild(cleanupCtx, msg); err != nil {
+					handleErr = apperrors.Wrap(apperrors.ErrUnavailable, "build cleanup is pending", err)
+				}
+			}
+		}
+		s.activeMu.Lock()
+		delete(s.handling, msg.BuildID)
+		s.activeMu.Unlock()
+	}()
+	if !retained {
+		var err error
+		result, retained, err = s.results.Load(ctx, msg.BuildID)
+		if err != nil {
+			return fmt.Errorf("load build finalization: %w", err)
+		}
+	}
+	if retained {
+		if err := s.completeBuild(ctx, msg.BuildID, result.ImageID, result.Status, result.SizeMB); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	cfg := s.config.Refresh(ctx)
 
 	if !s.acquireBuildSlot(ctx, cfg.MaxConcurrentBuilds) {
@@ -184,24 +288,38 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 	defer s.releaseBuildSlot()
 
-	imageID, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
+	// Admit before the claim so an unhealthy network leaves the build pending
+	// and the delivery retryable instead of recording a platform failure.
+	if err := s.networkAdmission.ValidateBuildNetwork(ctx, cfg.BuildNetworkName); err != nil {
+		return fmt.Errorf("admit build network: %w", err)
+	}
+	claim, started, status, err := s.claimBuild(ctx, msg.BuildID)
 	if err != nil {
 		return err
 	}
 	if !started {
 		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
 		if isTerminalBuildStatus(status) {
-			if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
+			cleanupCtx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if deleteErr := s.objectStore.DeleteObject(cleanupCtx, msg.ArchiveObjectKey); deleteErr != nil {
 				s.logger.WarnContext(ctx, "failed to delete skipped build archive object", "build_id", msg.BuildID, "error", deleteErr)
 			}
 		}
+		if !isTerminalBuildStatus(status) {
+			return apperrors.New(apperrors.ErrUnavailable, "build execution has no finalization result yet")
+		}
 		return nil
 	}
-	if imageID == "" {
-		imageID = msg.ImageID
+	imageID := claim.ImageID
+	if imageID == "" || claim.RegistryUsername == "" || claim.RegistryPassword == "" || claim.Destination == "" {
+		return apperrors.New(apperrors.ErrUnavailable, "build authorization is unavailable")
 	}
 
-	buildCtx, cancel := context.WithTimeout(ctx, cfg.MaxBuildTime)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, cfg.MaxBuildTime)
+	defer cancelTimeout()
+	buildCtx, stopBuild := context.WithCancelCause(timeoutCtx)
+	cancel := func() { stopBuild(nil) }
 	buildCtx = logging.ContextWithRequestID(buildCtx, msg.RequestID)
 
 	s.activeMu.Lock()
@@ -213,39 +331,39 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		s.activeMu.Unlock()
 	}()
 
-	pollDone := s.watchBuildCancellation(buildCtx, cancel, msg.BuildID, cfg.BuildCancelPollInterval)
+	pollDone := s.watchBuildStatus(buildCtx, stopBuild, msg.BuildID, cfg.BuildCancelPollInterval)
 	defer func() {
 		cancel()
 		<-pollDone
 	}()
 
 	archivePath := s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)
-	defer s.fileManager.CleanUp(archivePath)
-	defer s.logManager.CleanUp(msg.BuildID)
+	defer func() { _ = s.fileManager.CleanUp(archivePath) }() // best effort; cleanupFinalizedBuild retries and reports removal
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath)
+			return s.completeStoppedBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath, msg.ContextDir, msg.Dockerfile); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath)
+			return s.completeStoppedBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
-		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.")
-		if uploadErr := s.uploadBuildLog(buildCtx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
-			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
+		logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
+		if err := s.logManager.WriteSystemLog(buildCtx, msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes); err != nil {
+			logger.WarnContext(ctx, "failed to write invalid archive build log", "error", err)
 		}
-		if completeErr := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
+		if uploadErr := s.uploadBuildLog(buildCtx, logger, msg.BuildID, msg.LogObjectKey); uploadErr != nil {
+			logger.WarnContext(ctx, "failed to upload invalid archive build log", "error", uploadErr)
+		}
+		if completeErr := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
 			return completeErr
-		}
-		if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
-			s.logger.WarnContext(ctx, "failed to delete invalid build archive object", "build_id", msg.BuildID, "error", deleteErr)
 		}
 		return nil
 	}
 
 	if err := s.processBuild(buildCtx, cancel, cfg, archivePath, buildJob{
+		Claim:        claim,
 		BuildID:      msg.BuildID,
 		ImageID:      imageID,
 		OwnerID:      msg.OwnerID,
@@ -258,28 +376,119 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}); err != nil {
 		return err
 	}
-	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
-		s.logger.WarnContext(ctx, "failed to delete build archive object", "build_id", msg.BuildID, "error", err)
+	return nil
+}
+
+// claimBuild claims the build from Core. While Core refuses the claim
+// (unclaimed and still pending: the running builds fill its claim cap, the
+// disk cannot hold another build slot, or Registry garbage collection holds
+// claims), it keeps the delivery and claims again every
+// refusedClaimRetryDelay. Returning a refused delivery to the queue instead
+// would count against the queue's delivery limit, and a build that only waits
+// for a slot would be dead-lettered. Shutdown ends the wait with the context
+// error.
+func (s *BuilderService) claimBuild(ctx context.Context, buildID string) (model.BuildClaim, bool, model.BuildStatus, error) {
+	refused := false
+	for {
+		claim, started, status, err := s.coreClient.StartBuildRecord(ctx, buildID)
+		if err != nil || started || status != buildStatusPending {
+			return claim, started, status, err
+		}
+		if !refused {
+			refused = true
+			s.logger.InfoContext(ctx, "build claim refused by Core; waiting to claim again", "build_id", buildID)
+		}
+		timer := time.NewTimer(refusedClaimRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return model.BuildClaim{}, false, status, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *BuilderService) completeBuild(ctx context.Context, buildID, imageID string, status model.BuildStatus, sizeMB int) error {
+	result := model.BuildResult{ImageID: imageID, Status: status, SizeMB: sizeMB}
+	s.activeMu.Lock()
+	s.retainedResults[buildID] = result
+	s.activeMu.Unlock()
+	if err := s.results.Save(ctx, buildID, result); err != nil {
+		return fmt.Errorf("persist build finalization: %w", err)
+	}
+	if err := s.coreClient.CompleteBuildRecord(ctx, buildID, imageID, status, sizeMB); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			// Missing image/user metadata is not proof that the build was deleted.
+			if _, statusErr := s.coreClient.GetBuildStatus(ctx, buildID); errors.Is(statusErr, apperrors.ErrNotFound) {
+				return nil
+			}
+		}
+		s.logger.WarnContext(ctx, "build finalization remains pending", "build_id", buildID, "error", err)
+		// Even application errors must not dead-letter a durably retained outcome.
+		return apperrors.Wrap(apperrors.ErrUnavailable, "build finalization is pending", err)
 	}
 	return nil
 }
 
-func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID, archivePath string) error {
-	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
-	if archivePath != "" {
-		_ = s.fileManager.CleanUp(archivePath)
+func (s *BuilderService) cleanupFinalizedBuild(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+	if err := s.objectStore.DeleteObject(ctx, msg.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		return fmt.Errorf("clean finalized build archive object: %w", err)
 	}
-	s.writeCancelledBuildLog(context.Background(), logger, msg.BuildID, msg.LogObjectKey)
-	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
+	if err := s.fileManager.CleanUp(s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)); err != nil {
+		return fmt.Errorf("clean finalized build archive file: %w", err)
+	}
+	if err := s.workspaces.CleanUp(ctx, msg.BuildID); err != nil {
+		return fmt.Errorf("clean finalized build workspace: %w", err)
+	}
+	if err := s.logManager.CleanUp(msg.BuildID); err != nil {
+		return fmt.Errorf("clean finalized build log: %w", err)
+	}
+	return s.forgetBuildResult(ctx, msg.BuildID)
+}
+
+func (s *BuilderService) forgetBuildResult(ctx context.Context, buildID string) error {
+	if err := s.results.Delete(ctx, buildID); err != nil {
+		return fmt.Errorf("clean build finalization: %w", err)
+	}
+	s.activeMu.Lock()
+	delete(s.retainedResults, buildID)
+	s.activeMu.Unlock()
+	return nil
+}
+
+// completeStoppedBuild runs after the build context is done, so its log
+// write and upload use a detached cleanup context. A build Core stopped for
+// resource exhaustion keeps that outcome; any other stop is a cancellation.
+func (s *BuilderService) completeStoppedBuild(ctx context.Context, msg buildqueue.ImageBuildMessage, imageID string, maxLogSize int64) error {
+	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
+	logCtx, cancel := cleanupContext(ctx)
+	defer cancel()
+	status, message := buildStatusCanceled, buildLogCanceled
+	if stoppedForResourceExhaustion(ctx) {
+		status, message = buildStatusFailedResourceExhausted, buildLogResourceExhausted
+	}
+	s.writeSystemBuildLog(logCtx, logger, msg.BuildID, msg.LogObjectKey, maxLogSize, message)
+	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, status, 0); err != nil {
 		return err
 	}
-	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
-		logger.WarnContext(context.Background(), "failed to delete canceled build archive object", "error", err)
-	}
 	return nil
 }
 
-func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel context.CancelFunc, buildID string, pollInterval time.Duration) <-chan struct{} {
+// errStoppedForResourceExhaustion is the cause of a build context ended
+// because Core recorded the build failed_resource_exhausted: the platform
+// stopped it under memory pressure.
+var errStoppedForResourceExhaustion = errors.New("build stopped by the platform: server resources were exhausted")
+
+// stoppedForResourceExhaustion reports whether ctx ended because Core
+// stopped the build for resource exhaustion.
+func stoppedForResourceExhaustion(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), errStoppedForResourceExhaustion)
+}
+
+// watchBuildStatus polls Core and stops the build once Core records a
+// terminal status: as a resource-exhaustion stop for
+// failed_resource_exhausted, as a cancellation otherwise.
+func (s *BuilderService) watchBuildStatus(ctx context.Context, stop context.CancelCauseFunc, buildID string, pollInterval time.Duration) <-chan struct{} {
 	if pollInterval <= 0 {
 		pollInterval = defaultBuildCancelPollInterval
 	}
@@ -301,8 +510,12 @@ func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel cont
 					continue
 				}
 				if isTerminalBuildStatus(status) {
-					s.logger.InfoContext(ctx, "build cancellation detected", "build_id", buildID, "status", status, "duration_ms", time.Since(startedAt).Milliseconds())
-					cancel()
+					s.logger.InfoContext(ctx, "terminal build status detected", "build_id", buildID, "status", status, "duration_ms", time.Since(startedAt).Milliseconds())
+					var cause error
+					if status == buildStatusFailedResourceExhausted {
+						cause = errStoppedForResourceExhaustion
+					}
+					stop(cause)
 					return
 				}
 			}
@@ -312,8 +525,8 @@ func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel cont
 }
 
 func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, cfg config.BuilderConfig, archivePath string, job buildJob) error {
-	// Очищаем архив после сборки
-	defer s.fileManager.CleanUp(archivePath)
+	// Очищаем архив после сборки; cleanupFinalizedBuild retries and reports removal.
+	defer func() { _ = s.fileManager.CleanUp(archivePath) }()
 
 	defer cancel()
 	ctx = logging.ContextWithRequestID(ctx, job.RequestID)
@@ -328,7 +541,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 	workspaceDir, cleanupWorkspace, err := s.workspaces.Create(job.BuildID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to create build workspace", "error", err)
-		s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+		s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogInternal)
 	} else {
 		defer cleanupWorkspace()
 
@@ -337,25 +550,26 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			logger.ErrorContext(ctx, "failed to extract build archive", "error", err)
 			if isResourceExhaustedError(err) {
 				status = buildStatusFailedResourceExhausted
-				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
 			} else {
-				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogInternal)
 			}
 		} else {
 			cleanContextDir, err := gitsource.CleanRelativePath(job.ContextDir)
 			if err != nil {
 				logger.ErrorContext(ctx, "invalid build context path in queue message", "error", err)
-				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogInternal)
 			} else {
 				dfPath, err := cleanDockerfilePath(job.Dockerfile)
 				if err != nil {
 					logger.ErrorContext(ctx, "invalid dockerfile path in queue message", "error", err)
-					s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+					s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogInternal)
 				} else {
-					repoName := imageref.CustomRepositoryNameString(job.OwnerID, baseName)
-					destinationTag := fmt.Sprintf("%s/%s:%s", cfg.RegistryURL, repoName, version)
+					destinationTag := job.Claim.Destination
 
 					params := model.BuildRuntimeSpec{
+						RegistryUsername:     job.Claim.RegistryUsername,
+						RegistryPassword:     job.Claim.RegistryPassword,
 						BuildID:              job.BuildID,
 						OwnerID:              job.OwnerID,
 						WorkspaceDir:         workspaceDir,    // Путь к папке на хосте/в контейнере билдера
@@ -370,6 +584,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 						PidsLimit:            cfg.BuildPidsLimit,
 						BuildArgs:            job.BuildArgs,
 						NetworkName:          cfg.BuildNetworkName,
+						MaxDiskBytes:         cfg.BuildMaxDiskBytes,
 					}
 
 					status = s.runBuildContainer(ctx, logger, cfg, params, destinationTag, job)
@@ -378,23 +593,33 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		}
 	}
 
-	if ctx.Err() == context.DeadlineExceeded {
+	// Once the build context is done, terminal log writes and the final upload
+	// use a detached cleanup context so the outcome still reaches the log.
+	logCtx := ctx
+	if ctx.Err() != nil {
+		var cancelLog context.CancelFunc
+		logCtx, cancelLog = cleanupContext(ctx)
+		defer cancelLog()
+	}
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		status = buildStatusFailedTimeout
-		if err := s.logManager.WriteSystemLog(job.BuildID, "Build failed because it exceeded the maximum build time."); err != nil {
-			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
-		}
-		if uploadErr := s.uploadBuildLog(ctx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
-			logger.WarnContext(ctx, "failed to upload timeout build log", "error", uploadErr)
-		}
-	} else if ctx.Err() == context.Canceled {
+		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogTimeout)
+	case stoppedForResourceExhaustion(ctx):
+		status = buildStatusFailedResourceExhausted
+		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
+	case errors.Is(ctx.Err(), context.Canceled):
 		status = buildStatusCanceled
-		s.writeCancelledBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogCanceled)
 	}
 
-	if uploadErr := s.uploadBuildLog(ctx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
+	if uploadErr := s.uploadBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
 		logger.WarnContext(ctx, "failed to upload final build log", "error", uploadErr)
+		if status == buildStatusSuccess {
+			status = buildStatusFailedInternal
+		}
 	}
-	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), job.RequestID), job.BuildID, job.ImageID, status, sizeMB); err != nil {
+	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), job.RequestID), job.BuildID, job.ImageID, status, sizeMB); err != nil {
 		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
 		return err
 	}
@@ -406,82 +631,140 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 	return nil
 }
 
-func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Logger, cfg config.BuilderConfig, params model.BuildRuntimeSpec, destinationTag string, job buildJob) string {
+func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Logger, cfg config.BuilderConfig, params model.BuildRuntimeSpec, destinationTag string, job buildJob) model.BuildStatus {
 	containerID, logStream, buildErr := s.dockerAPI.RunBuildContainer(ctx, params)
 	if buildErr != nil {
 		if ctx.Err() == nil {
 			logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
 			if isResourceExhaustedError(buildErr) {
-				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
 				return buildStatusFailedResourceExhausted
 			}
-			s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+			s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogInternal)
 		}
 		return buildStatusFailedInternal
 	}
-	defer logStream.Close()
-	defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+	defer func() { _ = logStream.Close() }() // read-only stream; log failures are reported by SaveLogs
+	defer func() {
+		// Orphan build containers are otherwise only removed at Builder startup.
+		cleanupCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		if err := s.dockerAPI.CleanBuildContainer(cleanupCtx, containerID); err != nil {
+			logger.WarnContext(ctx, "failed to remove build container", "container_id", containerID, "error", err)
+		}
+	}()
+	// Deferred after the removal, so the watch has stopped before Kaniko is
+	// removed.
+	stopDiskWatch := s.watchBuildDisk(ctx, logger, containerID, params.MaxDiskBytes)
+	defer stopDiskWatch()
 
 	sanitizedLogs := newBuildLogSanitizer(logStream, buildLogSanitizerOptions{
+		MaxBytes:       cfg.MaxBuildLogSizeBytes,
 		RegistryURL:    cfg.RegistryURL,
 		DestinationTag: destinationTag,
 	})
 
 	_, logErr := s.logManager.SaveLogs(job.BuildID, sanitizedLogs, cfg.MaxBuildLogSizeBytes)
-	if logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr) {
-		_ = logStream.Close()
-		_ = s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+	if logErr != nil {
+		// Stop Kaniko immediately on any log failure; keep the build context's
+		// cancellation reason independent from a local logging failure.
+		_ = logStream.Close() // stops Kaniko's output; the log error decides the outcome
+		if s.logManager.IsLogSizeLimitExceeded(logErr) {
+			logger.WarnContext(ctx, "build log size limit exceeded")
+			return buildStatusFailed
+		}
+		logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
+		return buildStatusFailedInternal
 	}
 
 	waitErr := s.dockerAPI.WaitForBuild(ctx, containerID)
 
 	switch {
-	case logErr == nil && waitErr == nil && ctx.Err() == nil:
+	case waitErr == nil && ctx.Err() == nil:
 		return buildStatusSuccess
+	case isResourceExhaustedError(waitErr):
+		// A canceled, timed-out or platform-stopped build is killed too; its
+		// caller records that outcome and its log line instead.
+		if ctx.Err() == nil {
+			s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
+		}
+		return buildStatusFailedResourceExhausted
 	case waitErr != nil:
-		if logErr != nil {
-			logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
-		}
-		if isResourceExhaustedError(waitErr) {
-			return buildStatusFailedResourceExhausted
-		}
 		return buildStatusFailed
-	case logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr):
-		logger.WarnContext(ctx, "build log size limit exceeded", "error", logErr)
-		return buildStatusFailed
-	case logErr != nil:
-		logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
-		s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
-		return buildStatusFailedInternal
 	default:
 		return buildStatusFailedInternal
 	}
 }
 
-func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error."); err != nil {
-		logger.WarnContext(ctx, "failed to write internal build log", "error", err)
+// buildDiskCheckInterval is how often Builder reads a running build
+// container's writable-layer size.
+const buildDiskCheckInterval = 5 * time.Second
+
+// watchBuildDisk reads the build container's writable-layer size every
+// buildDiskCheckInterval and kills Kaniko once it is above maxDiskBytes. The
+// killed container exits like one the kernel's OOM killer stopped, so
+// WaitForBuild reports resource exhaustion and the build ends
+// failed_resource_exhausted through that path. A failed read or kill is
+// logged and retried at the next tick. The returned function stops the watch
+// and waits for it; a cap of zero watches nothing.
+func (s *BuilderService) watchBuildDisk(ctx context.Context, logger *slog.Logger, containerID string, maxDiskBytes int64) (stop func()) {
+	if maxDiskBytes <= 0 {
+		return func() {}
 	}
-	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
-		logger.WarnContext(ctx, "failed to upload internal build log", "error", err)
+	watchCtx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		ticker := time.NewTicker(buildDiskCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+			}
+			used, err := s.dockerAPI.BuildDiskUsage(watchCtx, containerID)
+			if err != nil {
+				if watchCtx.Err() == nil {
+					logger.WarnContext(ctx, "failed to read build disk usage", "container_id", containerID, "error", err)
+				}
+				continue
+			}
+			if used <= maxDiskBytes {
+				continue
+			}
+			logger.WarnContext(ctx, "build wrote more than the build disk cap; stopping it",
+				"container_id", containerID, "disk_bytes", used, "max_disk_bytes", maxDiskBytes)
+			if err := s.dockerAPI.KillBuildContainer(watchCtx, containerID); err != nil {
+				if watchCtx.Err() == nil {
+					logger.WarnContext(ctx, "failed to stop build over the build disk cap", "container_id", containerID, "error", err)
+				}
+				continue
+			}
+			return
+		}
+	})
+	return func() {
+		cancel()
+		wg.Wait()
 	}
 }
 
-func (s *BuilderService) writeResourceExhaustedBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build failed because server resources were exhausted."); err != nil {
-		logger.WarnContext(ctx, "failed to write resource exhausted build log", "error", err)
-	}
-	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
-		logger.WarnContext(ctx, "failed to upload resource exhausted build log", "error", err)
-	}
-}
+// System log messages appended when a build fails or is canceled.
+const (
+	buildLogInternal          = "Build failed due to an internal platform error."
+	buildLogResourceExhausted = "Build failed because server resources were exhausted."
+	buildLogCanceled          = "Build was canceled before it completed."
+	buildLogTimeout           = "Build failed because it exceeded the maximum build time."
+)
 
-func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build was canceled before it completed."); err != nil {
-		logger.WarnContext(ctx, "failed to write cancelled build log", "error", err)
+// writeSystemBuildLog appends message to the build log and uploads it; failures
+// are logged and never change the build outcome.
+func (s *BuilderService) writeSystemBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string, maxLogSize int64, message string) {
+	if err := s.logManager.WriteSystemLog(ctx, buildID, message, maxLogSize); err != nil {
+		logger.WarnContext(ctx, "failed to write system build log", "message", message, "error", err)
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
-		logger.WarnContext(ctx, "failed to upload cancelled build log", "error", err)
+		logger.WarnContext(ctx, "failed to upload system build log", "message", message, "error", err)
 	}
 }
 
@@ -516,16 +799,17 @@ func cleanDockerfilePath(raw string) (string, error) {
 }
 
 const (
-	buildStatusRunning                 = "running"
-	buildStatusSuccess                 = "success"
-	buildStatusCanceled                = "canceled"
-	buildStatusFailed                  = "failed"
-	buildStatusFailedTimeout           = "failed_timeout"
-	buildStatusFailedResourceExhausted = "failed_resource_exhausted"
-	buildStatusFailedInternal          = "failed_internal"
+	buildStatusPending                 model.BuildStatus = "pending"
+	buildStatusSuccess                 model.BuildStatus = "success"
+	buildStatusCanceled                model.BuildStatus = "canceled"
+	buildStatusFailed                  model.BuildStatus = "failed"
+	buildStatusFailedTimeout           model.BuildStatus = "failed_timeout"
+	buildStatusFailedResourceExhausted model.BuildStatus = "failed_resource_exhausted"
+	buildStatusFailedInternal          model.BuildStatus = "failed_internal"
+	buildStatusFailedQuotaExceeded     model.BuildStatus = "failed_quota_exceeded"
 )
 
-func isTerminalBuildStatus(status string) bool {
+func isTerminalBuildStatus(status model.BuildStatus) bool {
 	switch status {
 	case buildStatusSuccess,
 		buildStatusCanceled,
@@ -533,7 +817,7 @@ func isTerminalBuildStatus(status string) bool {
 		buildStatusFailedTimeout,
 		buildStatusFailedResourceExhausted,
 		buildStatusFailedInternal,
-		"failed_quota_exceeded":
+		buildStatusFailedQuotaExceeded:
 		return true
 	default:
 		return false

@@ -30,18 +30,18 @@ x-object-storage-env: &object-storage-env
 x-build-runtime-env: &build-runtime-env
   BUILD_NETWORK_NAME: "${BUILD_NETWORK_NAME:-build_net}"
   BUILD_MEMORY_BYTES: "${BUILD_MEMORY_BYTES:-2147483648}"
-  BUILD_CPU_QUOTA: "${BUILD_CPU_QUOTA:-200000}"
+  BUILD_CPU_MILLICORES: "${BUILD_CPU_MILLICORES:-2000}"
   BUILD_CPU_PERIOD: "${BUILD_CPU_PERIOD:-100000}"
   BUILD_MEMORY_SWAP_MULTIPLIER: "${BUILD_MEMORY_SWAP_MULTIPLIER:-2}"
   BUILD_PIDS_LIMIT: "${BUILD_PIDS_LIMIT:-512}"
-  KANIKO_IMAGE: "${KANIKO_IMAGE:-gcr.io/kaniko-project/executor:latest}"
+  KANIKO_IMAGE: "${KANIKO_IMAGE:-gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698}"
   MAX_BUILD_TIME_MINUTES: "${MAX_BUILD_TIME_MINUTES:-10}"
   MAX_CONCURRENT_BUILDS: "${MAX_CONCURRENT_BUILDS:-2}"
-  MAX_UPLOAD_SIZE_BYTES: "${MAX_UPLOAD_SIZE_BYTES:-52428800}"
   MAX_ARCHIVE_SIZE_BYTES: "${MAX_ARCHIVE_SIZE_BYTES:-52428800}"
   MAX_UNPACKED_SIZE_BYTES: "${MAX_UNPACKED_SIZE_BYTES:-524288000}"
   MAX_BUILD_LOG_SIZE_BYTES: "${MAX_BUILD_LOG_SIZE_BYTES:-5242880}"
   BUILD_CANCEL_POLL_INTERVAL_SECONDS: "${BUILD_CANCEL_POLL_INTERVAL_SECONDS:-2}"
+  BUILD_MAX_DISK_BYTES: "${BUILD_MAX_DISK_BYTES:-10737418240}"
 
 x-traefik-common-labels: &traefik-common-labels
   traefik.enable: "true"
@@ -55,7 +55,7 @@ x-traefik-security-headers: &traefik-security-headers
 services:
   core_db:
     <<: *service-defaults
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       <<: *postgres-env
       POSTGRES_DB: "${CORE_POSTGRES_DB:-dcm_core_db}"
@@ -71,7 +71,7 @@ services:
 
   sso_db:
     <<: *service-defaults
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       <<: *postgres-env
       POSTGRES_DB: "${SSO_POSTGRES_DB:-dcm_sso_db}"
@@ -87,7 +87,7 @@ services:
 
   migrate_core:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       core_db:
         condition: service_healthy
@@ -99,7 +99,7 @@ services:
 
   migrate_sso:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       sso_db:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
 
   clickhouse:
     <<: *service-defaults
-    image: clickhouse/clickhouse-server:25.5
+    image: clickhouse/clickhouse-server:25.5.11.15
     environment:
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
@@ -128,7 +128,7 @@ services:
 
   migrate_reports:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -140,7 +140,7 @@ services:
 
   rabbitmq:
     <<: *service-defaults
-    image: rabbitmq:4-management
+    image: rabbitmq:4.3.1-management
     environment:
       RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-dcm}"
       RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}"
@@ -159,7 +159,7 @@ services:
 
   minio:
     <<: *service-defaults
-    image: minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-dcm_minio}"
@@ -179,7 +179,7 @@ services:
 
   traefik:
     <<: *service-defaults
-    image: traefik:v3.6
+    image: traefik:v3.6.20
     container_name: dcm_traefik
     user: root
     command:
@@ -188,6 +188,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=proxy_net"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.forwardedheaders.insecure=false"
       - "--api.dashboard=${TRAEFIK_DASHBOARD_ENABLED:-false}"
       - "--api.insecure=${TRAEFIK_DASHBOARD_ENABLED:-false}"
       - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
@@ -198,22 +199,87 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - proxy_net
-      - dcm_net
+      # build-network-policy accepts same-bridge proxy_net traffic only to or
+      # from this address, so exposed containers reach each other only via Traefik.
+      proxy_net:
+        ipv4_address: "${TRAEFIK_PROXY_IP:-172.30.240.2}"
+      dcm_net: {}
+      gateway_ingress:
+        ipv4_address: "${TRAEFIK_GATEWAY_IP:-172.30.251.2}"
+
+  build-network-policy:
+    build:
+      context: .
+      dockerfile: deployment/registry/network-policy.Dockerfile
+    network_mode: host
+    cap_add: [NET_ADMIN]
+    read_only: true
+    tmpfs: [/run]
+    environment:
+      PROXY_BRIDGE: "${PROXY_BRIDGE_NAME:-br-dcm-proxy}"
+      TRAEFIK_PROXY_IP: "${TRAEFIK_PROXY_IP:-172.30.240.2}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "/usr/local/bin/network-policy-check"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  build-egress:
+    build:
+      context: .
+      dockerfile: deployment/registry/egress.Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /var/run/squid, /var/cache/squid]
+    networks:
+      build_net:
+        ipv4_address: 172.30.252.3
+      build_egress_net: {}
+
+  registry-edge:
+    build:
+      context: .
+      dockerfile: deployment/registry/edge.Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      # Docker publishes no ports for a container on internal networks only.
+      registry_publish_net: {}
+      registry_front_net: {}
+      build_net:
+        ipv4_address: 172.30.252.2
+        aliases: [registry]
+    depends_on:
+      core:
+        condition: service_started
 
   registry:
     <<: *service-defaults
-    image: registry:2
+    image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
     container_name: registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
-    ports:
-      - "127.0.0.1:5000:5000"
+      REGISTRY_HTTP_TLS_CERTIFICATE: /run/dcm-registry/backend.crt
+      REGISTRY_HTTP_TLS_KEY: /run/dcm-registry/backend.key
+      REGISTRY_HTTP_SECRET: "${REGISTRY_HTTP_SECRET:?REGISTRY_HTTP_SECRET is required}"
+      REGISTRY_HTTP_HOST: "https://${REGISTRY_URL:-registry:5000}"
+      REGISTRY_AUTH: token
+      REGISTRY_AUTH_TOKEN_REALM: "https://${REGISTRY_URL:-registry:5000}/token"
+      REGISTRY_AUTH_TOKEN_SERVICE: dcm-registry
+      REGISTRY_AUTH_TOKEN_ISSUER: "${REGISTRY_TOKEN_ISSUER:-dcm-core}"
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /run/dcm-registry/signing.crt
     volumes:
       - registry_data:/var/lib/registry
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/backend.crt:/run/dcm-registry/backend.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/backend.key:/run/dcm-registry/backend.key:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.crt:/run/dcm-registry/signing.crt:ro
     networks:
-      - dcm_net
-      - build_net
+      registry_net:
+        aliases: [registry-backend]
 
   sso:
     <<: *service-defaults
@@ -222,8 +288,12 @@ services:
       dockerfile: dockerfiles/sso.Dockerfile
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
+      SSO_DB_MAX_OPEN: "${SSO_DB_MAX_OPEN:-20}"
+      SSO_DB_MAX_LIFETIME: "${SSO_DB_MAX_LIFETIME:-30m}"
+      SSO_DB_MAX_IDLE_TIME: "${SSO_DB_MAX_IDLE_TIME:-5m}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      GATEWAY_SERVICE_TOKEN: "${GATEWAY_SERVICE_TOKEN:?GATEWAY_SERVICE_TOKEN is required}"
+      CORE_SERVICE_TOKEN: "${CORE_SERVICE_TOKEN:?CORE_SERVICE_TOKEN is required}"
       SSO_ADMIN_USERNAME: "${SSO_ADMIN_USERNAME:-admin}"
       SSO_ADMIN_EMAIL: "${SSO_ADMIN_EMAIL:-admin@example.local}"
       SSO_ADMIN_PASSWORD: "${SSO_ADMIN_PASSWORD:?SSO_ADMIN_PASSWORD is required}"
@@ -235,7 +305,6 @@ services:
       SSO_OIDC_CLIENT_SECRET: "${SSO_OIDC_CLIENT_SECRET:-}"
       SSO_OIDC_REDIRECT_URL: "${SSO_OIDC_REDIRECT_URL:-}"
       SSO_OIDC_ADMIN_GROUPS: "${SSO_OIDC_ADMIN_GROUPS:-}"
-      SSO_OIDC_DEFAULT_ROLE: "${SSO_OIDC_DEFAULT_ROLE:-user}"
       SSO_GRPC_PORT: "50051"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -254,7 +323,12 @@ services:
     environment:
       <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      CORE_DB_MAX_OPEN: "${CORE_DB_MAX_OPEN:-20}"
+      CORE_DB_MAX_LIFETIME: "${CORE_DB_MAX_LIFETIME:-30m}"
+      CORE_DB_MAX_IDLE_TIME: "${CORE_DB_MAX_IDLE_TIME:-5m}"
+      CORE_SERVICE_TOKEN: "${CORE_SERVICE_TOKEN:?CORE_SERVICE_TOKEN is required}"
+      GATEWAY_SERVICE_TOKEN: "${GATEWAY_SERVICE_TOKEN:?GATEWAY_SERVICE_TOKEN is required}"
+      BUILDER_SERVICE_TOKEN: "${BUILDER_SERVICE_TOKEN:?BUILDER_SERVICE_TOKEN is required}"
       SSO_GRPC_TARGET: "sso:50051"
       BASE_DOMAIN: "${BASE_DOMAIN:-localhost}"
       IMAGE_BUILDS_ENABLED: "${IMAGE_BUILDS_ENABLED:-true}"
@@ -262,8 +336,16 @@ services:
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}"
-      REGISTRY_API_URL: "${REGISTRY_API_URL:-registry:5000}"
-      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-localhost:5000}"
+      REGISTRY_API_URL: "${REGISTRY_API_URL:-https://registry-backend:5000}"
+      REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
+      REGISTRY_BACKEND_URL: "https://registry-backend:5000"
+      REGISTRY_CA_FILE: /run/dcm-registry/ca.crt
+      REGISTRY_TLS_CERT_FILE: /run/dcm-registry/registry.crt
+      REGISTRY_TLS_KEY_FILE: /run/dcm-registry/registry.key
+      REGISTRY_SIGNING_CERT_FILE: /run/dcm-registry/signing.crt
+      REGISTRY_SIGNING_KEY_FILE: /run/dcm-registry/signing.key
+      REGISTRY_TOKEN_ISSUER: "${REGISTRY_TOKEN_ISSUER:-dcm-core}"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-registry:5000}"
       REGISTRY_CONTAINER_NAME: "${REGISTRY_CONTAINER_NAME:-registry}"
       CONTAINER_PIDS_LIMIT: "${CONTAINER_PIDS_LIMIT:-256}"
       CONTAINER_MEMORY_SWAP_MULTIPLIER: "${CONTAINER_MEMORY_SWAP_MULTIPLIER:-2}"
@@ -273,6 +355,12 @@ services:
       STALE_BUILD_TIMEOUT_MINUTES: "${STALE_BUILD_TIMEOUT_MINUTES:-30}"
       EVENT_SYNC_INTERVAL_SECONDS: "${EVENT_SYNC_INTERVAL_SECONDS:-30}"
       EVENT_RECONNECT_DELAY_SECONDS: "${EVENT_RECONNECT_DELAY_SECONDS:-5}"
+      VOLUME_USAGE_INTERVAL_SECONDS: "${VOLUME_USAGE_INTERVAL_SECONDS:-60}"
+      VOLUME_USAGE_CYCLE_BUDGET_SECONDS: "${VOLUME_USAGE_CYCLE_BUDGET_SECONDS:-15}"
+      VOLUME_USAGE_SCAN_ENTRY_BUDGET: "${VOLUME_USAGE_SCAN_ENTRY_BUDGET:-50000}"
+      REGISTRY_CLEANUP_INTERVAL_SECONDS: "${REGISTRY_CLEANUP_INTERVAL_SECONDS:-5}"
+      REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS: "${REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS:-20}"
+      REGISTRY_GC_MAX_DURATION_SECONDS: "${REGISTRY_GC_MAX_DURATION_SECONDS:-900}"
       BUILD_OUTBOX_INTERVAL_SECONDS: "${BUILD_OUTBOX_INTERVAL_SECONDS:-1}"
       BUILD_OUTBOX_BATCH_SIZE: "${BUILD_OUTBOX_BATCH_SIZE:-10}"
       CONTAINER_CREATE_WORKER_COUNT: "${CONTAINER_CREATE_WORKER_COUNT:-2}"
@@ -291,11 +379,19 @@ services:
       COMPOSE_OUTBOX_BATCH_SIZE: "${COMPOSE_OUTBOX_BATCH_SIZE:-10}"
       COMPOSE_DEPLOY_MAX_ATTEMPTS: "${COMPOSE_DEPLOY_MAX_ATTEMPTS:-3}"
       MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER: "${MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER:-5}"
-      COMPOSE_BUILD_POLL_INTERVAL_SECONDS: "${COMPOSE_BUILD_POLL_INTERVAL_SECONDS:-3}"
       COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES: "${COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES:-5}"
-      COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS: "${COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS:-2}"
       COMPOSE_COORDINATOR_INTERVAL_SECONDS: "${COMPOSE_COORDINATOR_INTERVAL_SECONDS:-2}"
       HOST_MIN_FREE_DISK_BYTES: "${HOST_MIN_FREE_DISK_BYTES:-1073741824}"
+      MEMORY_PRESSURE_MIN_FREE_BYTES: "${MEMORY_PRESSURE_MIN_FREE_BYTES:-536870912}"
+      MEMORY_PRESSURE_INTERVAL_SECONDS: "${MEMORY_PRESSURE_INTERVAL_SECONDS:-10}"
+      MEMORY_BOOST_MULTIPLIER: "${MEMORY_BOOST_MULTIPLIER:-8}"
+      CPU_BOOST_MULTIPLIER: "${CPU_BOOST_MULTIPLIER:-8}"
+      BOOST_MIN_FREE_MEMORY_BYTES: "${BOOST_MIN_FREE_MEMORY_BYTES:-2147483648}"
+      DEFAULT_VOLUME_SIZE_BYTES: "${DEFAULT_VOLUME_SIZE_BYTES:-268435456}"
+      VOLUME_SIZE_ENFORCEMENT: "${VOLUME_SIZE_ENFORCEMENT:-false}"
+      DEFAULT_USER_QUOTA_CPU: "${DEFAULT_USER_QUOTA_CPU:-2.0}"
+      DEFAULT_USER_QUOTA_RAM_MB: "${DEFAULT_USER_QUOTA_RAM_MB:-2048}"
+      DEFAULT_USER_QUOTA_DISK_MB: "${DEFAULT_USER_QUOTA_DISK_MB:-5120}"
       GIT_SOURCES_ENABLED: "${GIT_SOURCES_ENABLED:-true}"
       GIT_ALLOWED_HOSTS: "${GIT_ALLOWED_HOSTS:-github.com,gitlab.com,bitbucket.org}"
       GIT_CLONE_TIMEOUT_SECONDS: "${GIT_CLONE_TIMEOUT_SECONDS:-60}"
@@ -309,15 +405,34 @@ services:
       TELEMETRY_MAX_COMMAND_ARGS: "${TELEMETRY_MAX_COMMAND_ARGS:-8}"
       TELEMETRY_MAX_COMMAND_ARG_BYTES: "${TELEMETRY_MAX_COMMAND_ARG_BYTES:-128}"
       TELEMETRY_WS_READ_LIMIT_BYTES: "${TELEMETRY_WS_READ_LIMIT_BYTES:-4096}"
+      TELEMETRY_MAX_GLOBAL_LOG_STREAMS: "${TELEMETRY_MAX_GLOBAL_LOG_STREAMS:-100}"
+      TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS: "${TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS:-50}"
+      TELEMETRY_READ_HEADER_TIMEOUT_SECONDS: "${TELEMETRY_READ_HEADER_TIMEOUT_SECONDS:-5}"
+      TELEMETRY_IDLE_TIMEOUT_SECONDS: "${TELEMETRY_IDLE_TIMEOUT_SECONDS:-120}"
+      TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS: "${TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS:-15}"
+      TELEMETRY_MAX_HEADER_BYTES: "${TELEMETRY_MAX_HEADER_BYTES:-1048576}"
       CORE_GRPC_PORT: "50052"
       CORE_HTTP_PORT: "8083"
       CORE_HOST_DISK_PATH: "${CORE_HOST_DISK_PATH:-/host}"
+      DOCKER_DATA_ROOT: "${DOCKER_DATA_ROOT:-/var/lib/docker}"
+      TENANT_CGROUP_PARENT: "${TENANT_CGROUP_PARENT:-}"
     volumes:
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/ca.crt:/run/dcm-registry/ca.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/registry.crt:/run/dcm-registry/registry.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/registry.key:/run/dcm-registry/registry.key:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.crt:/run/dcm-registry/signing.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.key:/run/dcm-registry/signing.key:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - /:/host:ro
+      # Only Docker's data directory of the host, at the same path under the
+      # host prefix: host disk figures and volume usage scans read it there.
+      - ${DOCKER_DATA_ROOT:-/var/lib/docker}:${CORE_HOST_DISK_PATH:-/host}${DOCKER_DATA_ROOT:-/var/lib/docker}:ro
       - core_config_data:/app/config
     networks:
-      - dcm_net
+      dcm_net:
+        aliases: [registry-edge]
+      registry_net: {}
+      registry_front_net:
+        aliases: [core-registry]
     depends_on:
       migrate_core:
         condition: service_completed_successfully
@@ -329,6 +444,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      # Core attaches exposed containers to proxy_net, which the policy isolates.
+      build-network-policy:
+        condition: service_healthy
 
   builder:
     <<: *service-defaults
@@ -338,49 +456,31 @@ services:
     environment:
       <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       CORE_GRPC_TARGET: "core:50052"
-      BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-}"
+      BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-builder-1}"
+      TENANT_CGROUP_PARENT: "${TENANT_CGROUP_PARENT:-}"
       REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      BUILDER_SERVICE_TOKEN: "${BUILDER_SERVICE_TOKEN:?BUILDER_SERVICE_TOKEN is required}"
+      REGISTRY_CA_FILE: /run/dcm-registry/ca.crt
       BUILD_STORAGE_PATH: "/tmp/builds"
       BUILD_LOGS_PATH: "/tmp/build_logs"
     volumes:
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/ca.crt:/run/dcm-registry/ca.crt:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - builder_storage:/tmp/builds
       - builder_logs:/tmp/build_logs
     networks:
       - dcm_net
     depends_on:
+      build-network-policy:
+        condition: service_healthy
+      build-egress:
+        condition: service_started
       core:
         condition: service_started
       rabbitmq:
         condition: service_healthy
       minio:
         condition: service_healthy
-
-  telemetry:
-    <<: *service-defaults
-    build:
-      <<: *backend-build
-      dockerfile: dockerfiles/telemetry.Dockerfile
-    environment:
-      TELEMETRY_PORT: "8084"
-      CORE_GRPC_TARGET: "core:50052"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
-      TELEMETRY_MAX_GLOBAL_LOG_STREAMS: "${TELEMETRY_MAX_GLOBAL_LOG_STREAMS:-100}"
-      TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS: "${TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS:-50}"
-      TELEMETRY_READ_HEADER_TIMEOUT_SECONDS: "${TELEMETRY_READ_HEADER_TIMEOUT_SECONDS:-5}"
-      TELEMETRY_IDLE_TIMEOUT_SECONDS: "${TELEMETRY_IDLE_TIMEOUT_SECONDS:-120}"
-      TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS: "${TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS:-15}"
-      TELEMETRY_MAX_HEADER_BYTES: "${TELEMETRY_MAX_HEADER_BYTES:-1048576}"
-      TELEMETRY_GRPC_REQUEST_TIMEOUT_SECONDS: "${TELEMETRY_GRPC_REQUEST_TIMEOUT_SECONDS:-10}"
-      TELEMETRY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS: "${TELEMETRY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS:-5}"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - dcm_net
-    depends_on:
-      core:
-        condition: service_started
 
   gateway:
     <<: *service-defaults
@@ -392,10 +492,9 @@ services:
       SSO_GRPC_TARGET: "sso:50051"
       CORE_GRPC_TARGET: "core:50052"
       CORE_HTTP_TARGET: "http://core:8083"
-      TELEMETRY_HTTP_TARGET: "http://telemetry:8084"
-      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      GATEWAY_SERVICE_TOKEN: "${GATEWAY_SERVICE_TOKEN:?GATEWAY_SERVICE_TOKEN is required}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}"
-      GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-}"
+      GATEWAY_TRUSTED_PROXIES: "${TRAEFIK_GATEWAY_IP:-172.30.251.2}"
       GATEWAY_MAX_JSON_BODY_BYTES: "${GATEWAY_MAX_JSON_BODY_BYTES:-1048576}"
       GATEWAY_AUTH_RATE_LIMIT_REQUESTS: "${GATEWAY_AUTH_RATE_LIMIT_REQUESTS:-20}"
       GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS: "${GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}"
@@ -418,22 +517,17 @@ services:
       GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST: "${GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST:-20}"
       GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS: "${GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS:-300}"
       GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS: "${GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS:-5}"
-      GATEWAY_GRPC_TLS_ENABLED: "${GATEWAY_GRPC_TLS_ENABLED:-false}"
-      GATEWAY_GRPC_TLS_CA_FILE: "${GATEWAY_GRPC_TLS_CA_FILE:-}"
-      GATEWAY_GRPC_TLS_CERT_FILE: "${GATEWAY_GRPC_TLS_CERT_FILE:-}"
-      GATEWAY_GRPC_TLS_KEY_FILE: "${GATEWAY_GRPC_TLS_KEY_FILE:-}"
-      GATEWAY_GRPC_TLS_SERVER_NAME: "${GATEWAY_GRPC_TLS_SERVER_NAME:-}"
       GATEWAY_READINESS_TIMEOUT_SECONDS: "${GATEWAY_READINESS_TIMEOUT_SECONDS:-3}"
       GATEWAY_TELEMETRY_TICKET_TTL_SECONDS: "${GATEWAY_TELEMETRY_TICKET_TTL_SECONDS:-60}"
       COOKIE_NAME: "${COOKIE_NAME:-refresh_token}"
       COOKIE_PATH: "${COOKIE_PATH:-/}"
       COOKIE_DOMAIN: "${COOKIE_DOMAIN:-}"
-      COOKIE_MAX_AGE_SECONDS: "${COOKIE_MAX_AGE_SECONDS:-2592000}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       COOKIE_HTTP_ONLY: "${COOKIE_HTTP_ONLY:-true}"
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
     labels:
       <<: [*traefik-common-labels, *traefik-security-headers]
+      traefik.docker.network: "dcm_gateway_ingress"
       traefik.http.routers.gateway-api.rule: "Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/api/v1`)"
       traefik.http.routers.gateway-api.priority: "10"
       traefik.http.routers.gateway-api.service: "gateway"
@@ -457,12 +551,11 @@ services:
       traefik.http.middlewares.dcm-json-buffer.buffering.maxrequestbodybytes: "1048576"
       traefik.http.middlewares.dcm-json-buffer.buffering.memrequestbodybytes: "1048576"
     networks:
-      - proxy_net
+      - gateway_ingress
       - dcm_net
     depends_on:
       - sso
       - core
-      - telemetry
 
   frontend:
     <<: *service-defaults
@@ -489,12 +582,41 @@ services:
       - proxy_net
 
 networks:
+  gateway_ingress:
+    name: dcm_gateway_ingress
+    internal: true
+    ipam:
+      config:
+        - subnet: "${GATEWAY_INGRESS_SUBNET:-172.30.251.0/24}"
   proxy_net:
     name: proxy_net
+    driver_opts:
+      com.docker.network.bridge.name: "${PROXY_BRIDGE_NAME:-br-dcm-proxy}"
+    ipam:
+      config:
+        # Docker allocates exposed containers only from ip_range, so Traefik's
+        # fixed address outside it is never taken first.
+        - subnet: "${PROXY_NETWORK_SUBNET:-172.30.240.0/21}"
+          ip_range: "${PROXY_NETWORK_IP_RANGE:-172.30.244.0/22}"
   dcm_net:
     name: dcm_net
+  registry_publish_net: {}
+  registry_front_net:
+    internal: true
+  registry_net:
+    internal: true
+  build_egress_net:
+    driver_opts:
+      com.docker.network.bridge.name: br-dcm-egress
   build_net:
     name: build_net
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-dcm-build
+    ipam:
+      config:
+        - subnet: 172.30.252.0/24
 
 volumes:
   core_db_data:

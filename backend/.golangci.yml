@@ -11,9 +11,108 @@ linters:
     - staticcheck
     - unused
     - ineffassign
+    - depguard
+  settings:
+    depguard:
+      rules:
+        service-and-model-purity:
+          files:
+            - "**/internal/*/service/**"
+            - "**/internal/*/model/**"
+            - "**/internal/*/config/**"
+            # Tests beside a service may wire real adapters; purity binds production code.
+            - "!$test"
+          deny:
+            - pkg: database/sql
+              desc: services and models do not use SQL directly
+            - pkg: github.com/jackc/pgx/v5
+              desc: services and models do not use the PostgreSQL driver
+            - pkg: github.com/docker/docker
+              desc: services and models do not use the Docker SDK
+            - pkg: github.com/gin-gonic/gin
+              desc: services and models do not use HTTP frameworks
+            - pkg: google.golang.org/grpc
+              desc: services and models do not use gRPC
+            - pkg: google.golang.org/protobuf
+              desc: services and models do not use protobuf
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/api
+              desc: services and models do not use generated contracts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse
+              desc: transport mapping belongs to transports
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors
+              desc: transport mapping belongs to transports
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool
+              desc: database pools belong to the composition root
+        platform:
+          files:
+            - "**/internal/platform/**"
+          deny:
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/builder
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
+              desc: platform packages do not import bounded contexts
+        builder-context:
+          files:
+            - "**/internal/builder/**"
+            - "**/cmd/builder/**"
+          deny:
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
+              desc: contexts share code only through internal/platform and api
+        core-context:
+          files:
+            - "**/internal/core/**"
+            - "**/cmd/core/**"
+          deny:
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/builder
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
+              desc: contexts share code only through internal/platform and api
+        gateway-context:
+          files:
+            - "**/internal/gateway/**"
+            - "**/cmd/gateway/**"
+          deny:
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/builder
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
+              desc: contexts share code only through internal/platform and api
+        sso-context:
+          files:
+            - "**/internal/sso/**"
+            - "**/cmd/sso/**"
+          deny:
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/builder
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
+              desc: contexts share code only through internal/platform and api
+            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
+              desc: contexts share code only through internal/platform and api
+    errcheck:
+      # Non-actionable cleanup. ClickHouse keeps database/sql: Rows.Close after
+      # iteration reports its failure through Rows.Err, Tx.Rollback after Commit
+      # returns ErrTxDone, and Stmt.Close only releases a prepared statement already
+      # executed or failed. A pgx Tx.Rollback after Commit returns ErrTxClosed, and a
+      # failed rollback closes the connection, ending the transaction anyway.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Stmt).Close
+        - (github.com/jackc/pgx/v5.Tx).Rollback
 
 issues:
-  max-issues-per-linter: 20
-  max-issues: 50
+  max-issues-per-linter: 0
+  max-same-issues: 0
   exclude-dirs:
     - migrations

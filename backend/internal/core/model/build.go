@@ -52,17 +52,45 @@ func IsBuildFailedStatus(status string) bool {
 }
 
 type Build struct {
+	RegistryCredential RegistryCredential
 	ID                 uuid.UUID
-	ImageID            uuid.UUID
+	// ImageID is uuid.Nil once the build's image record has been deleted.
+	ImageID uuid.UUID
+	// Tag is the normalized user tag the build was queued for.
+	Tag                string
 	OwnerID            uuid.UUID
 	ProjectID          *uuid.UUID
 	ProjectServiceName string
-	OwnerUsername      string
-	Status             string
-	LogFilePath        string
-	ArchiveObjectKey   string
-	StartedAt          time.Time
-	FinishedAt         *time.Time
+	// Source is where the build's context came from; empty for a Compose
+	// project's build.
+	Source           BuildSource
+	OwnerUsername    string
+	Status           string
+	LogObjectKey     string
+	ArchiveObjectKey string
+	CreatedAt        time.Time
+	StartedAt        time.Time
+	FinishedAt       *time.Time
+}
+
+// BuildSourceKind is what a build's context came from; empty for a Compose
+// project's build.
+type BuildSourceKind string
+
+const (
+	BuildSourceArchive BuildSourceKind = "archive"
+	BuildSourceGit     BuildSourceKind = "git"
+)
+
+// BuildSource is where a build's context came from: an uploaded archive or a
+// Git repository.
+type BuildSource struct {
+	Kind BuildSourceKind
+	// Location is the archive's file name or the repository URL.
+	Location string
+	// Ref is the Git ref asked for; empty for an archive or the default
+	// branch.
+	Ref string
 }
 
 type BuildQueueOutbox struct {

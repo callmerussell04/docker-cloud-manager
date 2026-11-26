@@ -1,20 +1,29 @@
-package grpcclient
+package client
 
 import (
 	"context"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type SSOClient struct {
 	authAPI sso.AuthClient
 	userAPI sso.UserAPIClient
+}
+
+// withoutAuthenticatedUser states system scope for a call made before any
+// user is authenticated: the public auth routes and access token checks. SSO
+// refuses a call without a scope.
+func withoutAuthenticatedUser(ctx context.Context) context.Context {
+	return accessscope.WithSystemScope(ctx)
 }
 
 func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
@@ -31,7 +40,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 		Password: password,
 	}
 
-	resp, err := c.authAPI.Register(ctx, req)
+	resp, err := c.authAPI.Register(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
 	}
@@ -39,21 +48,29 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 	return resp.GetUserId(), nil
 }
 
-func (c *SSOClient) Login(ctx context.Context, username, password string) (model.Tokens, error) {
+func (c *SSOClient) Login(ctx context.Context, username, password string) (model.SignIn, error) {
 	req := &sso.LoginRequest{
 		Username: username,
 		Password: password,
 	}
 
-	resp, err := c.authAPI.Login(ctx, req)
+	resp, err := c.authAPI.Login(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
-		return model.Tokens{}, grpcerrors.FromGRPC(err)
+		return model.SignIn{}, grpcerrors.FromGRPC(err)
 	}
 
-	return model.Tokens{
-		AccessToken:  resp.GetAccessToken(),
-		RefreshToken: resp.GetRefreshToken(),
+	return model.SignIn{
+		Tokens: model.Tokens{
+			AccessToken:      resp.GetAccessToken(),
+			RefreshToken:     resp.GetRefreshToken(),
+			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
+		},
+		User: signedInUserFromProto(resp.GetUser()),
 	}, nil
+}
+
+func signedInUserFromProto(user *sso.SignedInUser) model.SignedInUser {
+	return model.SignedInUser{ID: user.GetId(), Username: user.GetUsername(), Role: user.GetRole()}
 }
 
 func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tokens, error) {
@@ -61,25 +78,26 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 		RefreshToken: refreshToken,
 	}
 
-	resp, err := c.authAPI.Refresh(ctx, req)
+	resp, err := c.authAPI.Refresh(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
 		return model.Tokens{}, grpcerrors.FromGRPC(err)
 	}
 
 	return model.Tokens{
-		AccessToken:  resp.GetAccessToken(),
-		RefreshToken: resp.GetRefreshToken(),
+		AccessToken:      resp.GetAccessToken(),
+		RefreshToken:     resp.GetRefreshToken(),
+		RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
 	}, nil
 }
 
 func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error) {
-	resp, err := c.authAPI.GetAuthConfig(ctx, &sso.GetAuthConfigRequest{})
+	resp, err := c.authAPI.GetAuthConfig(withoutAuthenticatedUser(ctx), &sso.GetAuthConfigRequest{})
 	if err != nil {
 		return model.AuthConfig{}, grpcerrors.FromGRPC(err)
 	}
 	providers := make([]model.OIDCProvider, 0, len(resp.GetOidcProviders()))
 	for _, provider := range resp.GetOidcProviders() {
-		providers = append(providers, model.OIDCProvider{Name: provider.GetName()})
+		providers = append(providers, model.OIDCProvider{Name: provider.GetName(), Available: provider.GetAvailable()})
 	}
 	return model.AuthConfig{
 		LocalLoginEnabled:    resp.GetLocalLoginEnabled(),
@@ -89,7 +107,7 @@ func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 }
 
 func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error) {
-	resp, err := c.authAPI.StartOIDCLogin(ctx, &sso.StartOIDCLoginRequest{
+	resp, err := c.authAPI.StartOIDCLogin(withoutAuthenticatedUser(ctx), &sso.StartOIDCLoginRequest{
 		Provider:      provider,
 		RedirectAfter: redirectAfter,
 	})
@@ -98,12 +116,14 @@ func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter 
 	}
 	return model.OIDCLoginStartResult{
 		AuthURL:      resp.GetAuthUrl(),
+		State:        resp.GetState(),
 		StateBinding: resp.GetStateBinding(),
+		ExpiresAt:    time.Unix(resp.GetExpiresAt(), 0),
 	}, nil
 }
 
 func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error) {
-	resp, err := c.authAPI.CompleteOIDCCallback(ctx, &sso.CompleteOIDCCallbackRequest{
+	resp, err := c.authAPI.CompleteOIDCCallback(withoutAuthenticatedUser(ctx), &sso.CompleteOIDCCallbackRequest{
 		Provider:     provider,
 		Code:         code,
 		State:        state,
@@ -112,13 +132,38 @@ func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, st
 	if err != nil {
 		return model.OIDCCallbackResult{}, grpcerrors.FromGRPC(err)
 	}
-	return model.OIDCCallbackResult{
-		Tokens: model.Tokens{
-			AccessToken:  resp.GetAccessToken(),
-			RefreshToken: resp.GetRefreshToken(),
-		},
+	result := model.OIDCCallbackResult{
+		Outcome:       callbackOutcomeFromProto(resp.GetOutcome()),
 		RedirectAfter: resp.GetRedirectAfter(),
-	}, nil
+	}
+	if result.Outcome == model.OIDCCallbackSuccess {
+		result.Tokens = model.Tokens{
+			AccessToken:      resp.GetAccessToken(),
+			RefreshToken:     resp.GetRefreshToken(),
+			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
+		}
+		result.User = signedInUserFromProto(resp.GetUser())
+	}
+	return result, nil
+}
+
+// callbackOutcomeFromProto maps an unknown outcome to the empty one, which
+// Gateway treats as a failed sign-in.
+func callbackOutcomeFromProto(outcome sso.OIDCCallbackOutcome) model.OIDCCallbackOutcome {
+	switch outcome {
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS:
+		return model.OIDCCallbackSuccess
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT:
+		return model.OIDCCallbackInvalidAttempt
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED:
+		return model.OIDCCallbackIdentityRejected
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED:
+		return model.OIDCCallbackAccountDeactivated
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT:
+		return model.OIDCCallbackAccountConflict
+	default:
+		return ""
+	}
 }
 
 func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error) {
@@ -127,7 +172,7 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (m
 		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
-	resp, err := c.userAPI.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{
+	resp, err := c.userAPI.VerifyAccessToken(withoutAuthenticatedUser(ctx), &sso.VerifyTokenRequest{
 		AccessToken: token,
 	})
 	if err != nil {
@@ -147,7 +192,7 @@ func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission 
 		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
-	resp, err := c.userAPI.CheckPermission(ctx, &sso.CheckPermissionRequest{
+	resp, err := c.userAPI.CheckPermission(withoutAuthenticatedUser(ctx), &sso.CheckPermissionRequest{
 		AccessToken: token,
 		Permission:  permission,
 	})
@@ -205,14 +250,11 @@ func (c *SSOClient) GetUser(ctx context.Context, userID string) (model.AdminUser
 
 func (c *SSOClient) CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error) {
 	resp, err := c.userAPI.CreateUser(ctx, &sso.CreateUserRequest{
-		Username:    input.Username,
-		Email:       input.Email,
-		Password:    input.Password,
-		Role:        input.Role,
-		Status:      input.Status,
-		QuotaCpu:    input.QuotaCPU,
-		QuotaRamMb:  input.QuotaRAMMB,
-		QuotaDiskMb: input.QuotaDiskMB,
+		Username: input.Username,
+		Email:    input.Email,
+		Password: input.Password,
+		Role:     input.Role,
+		Status:   input.Status,
 	})
 	if err != nil {
 		return model.AdminUser{}, grpcerrors.FromGRPC(err)
@@ -222,15 +264,12 @@ func (c *SSOClient) CreateUser(ctx context.Context, input model.CreateUserInput)
 
 func (c *SSOClient) UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error) {
 	resp, err := c.userAPI.UpdateUser(ctx, &sso.UpdateUserRequest{
-		UserId:      userID,
-		Username:    input.Username,
-		Email:       input.Email,
-		Password:    input.Password,
-		Role:        input.Role,
-		Status:      input.Status,
-		QuotaCpu:    input.QuotaCPU,
-		QuotaRamMb:  input.QuotaRAMMB,
-		QuotaDiskMb: input.QuotaDiskMB,
+		UserId:   userID,
+		Username: input.Username,
+		Email:    input.Email,
+		Password: input.Password,
+		Role:     input.Role,
+		Status:   input.Status,
 	})
 	if err != nil {
 		return model.AdminUser{}, grpcerrors.FromGRPC(err)
@@ -259,13 +298,39 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 		return model.AdminUser{}
 	}
 	return model.AdminUser{
-		UserID:      user.GetUserId(),
-		Username:    user.GetUsername(),
-		Email:       user.GetEmail(),
-		Role:        user.GetRole(),
-		Status:      user.GetStatus(),
-		QuotaCPU:    user.GetQuotaCpu(),
-		QuotaRAMMB:  user.GetQuotaRamMb(),
-		QuotaDiskMB: user.GetQuotaDiskMb(),
+		UserID:   user.GetUserId(),
+		Username: user.GetUsername(),
+		Email:    user.GetEmail(),
+		Role:     user.GetRole(),
+		Status:   user.GetStatus(),
+
+		AuthSource:            user.GetAuthSource(),
+		RoleManagedByProvider: user.GetRoleManagedByProvider(),
 	}
+}
+
+// Logout revokes the session and answers the provider sign-out URL for a
+// session created through OIDC, empty otherwise.
+func (c *SSOClient) Logout(ctx context.Context, refreshToken, postLogoutRedirectURI string) (string, error) {
+	resp, err := c.authAPI.Logout(withoutAuthenticatedUser(ctx), &sso.LogoutRequest{
+		RefreshToken:          refreshToken,
+		PostLogoutRedirectUri: postLogoutRedirectURI,
+	})
+	if err != nil {
+		return "", grpcerrors.FromGRPC(err)
+	}
+	return resp.GetProviderLogoutUrl(), nil
+}
+
+// BackchannelLogout forwards a provider's logout token under system scope and
+// returns how many sessions SSO revoked.
+func (c *SSOClient) BackchannelLogout(ctx context.Context, provider, logoutToken string) (int, error) {
+	resp, err := c.authAPI.BackchannelLogout(withoutAuthenticatedUser(ctx), &sso.BackchannelLogoutRequest{
+		Provider:    provider,
+		LogoutToken: logoutToken,
+	})
+	if err != nil {
+		return 0, grpcerrors.FromGRPC(err)
+	}
+	return int(resp.GetRevokedSessions()), nil
 }

@@ -1,16 +1,17 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) CreateVolume(ctx context.Context, createVolumeDTO model.CreateVolumeInput) (string, error) {
 	req := &coreapi.CreateVolumeRequest{
-		Name: createVolumeDTO.Name,
+		Name:      createVolumeDTO.Name,
+		SizeBytes: createVolumeDTO.SizeBytes,
 	}
 	resp, err := c.volumeAPI.CreateVolume(ctx, req)
 	if err != nil {
@@ -51,9 +52,12 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 			LastError:       item.GetLastError(),
 			UsedBytes:       item.GetUsedBytes(),
 			UsageObservedAt: item.GetUsageObservedAt(),
+			SizeBytes:       item.GetSizeBytes(),
+			SizeEnforced:    item.GetSizeEnforced(),
 			CreatedAt:       item.GetCreatedAt(),
 			OwnerID:         item.GetOwnerId(),
 			OwnerUsername:   item.GetOwnerUsername(),
+			UsedBy:          containerRefsFromProto(item.GetUsedBy()),
 		})
 	}
 	return result

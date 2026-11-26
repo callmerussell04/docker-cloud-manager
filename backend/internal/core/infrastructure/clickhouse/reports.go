@@ -10,7 +10,7 @@ import (
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/google/uuid"
 )
 
@@ -74,7 +74,7 @@ func (r *ReportsRepository) dbConn() (*sql.DB, error) {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
-		_ = db.Close()
+		_ = db.Close() // startup already failed; the ping error is returned
 		return nil, fmt.Errorf("failed to ping clickhouse: %w", err)
 	}
 	r.db = db
@@ -137,7 +137,7 @@ func (r *ReportsRepository) InsertUsageSnapshots(ctx context.Context, snapshots 
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback()
+			_ = tx.Rollback() // cleanup after a failed insert, whose error is returned
 		}
 	}()
 
@@ -517,8 +517,8 @@ func auditWhere(filters model.AuditEventFilters) (string, []any) {
 		args = append(args, filters.ResourceType)
 	}
 	if filters.Search != "" {
-		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0 OR positionCaseInsensitive(details_json, ?) > 0)")
-		args = append(args, filters.Search, filters.Search, filters.Search, filters.Search)
+		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(action, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0 OR positionCaseInsensitive(details_json, ?) > 0)")
+		args = append(args, filters.Search, filters.Search, filters.Search, filters.Search, filters.Search)
 	}
 	return "WHERE " + strings.Join(parts, " AND "), args
 }

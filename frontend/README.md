@@ -1,73 +1,34 @@
-# React + TypeScript + Vite
+# Клиентская часть Docker Cloud Manager
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Веб-интерфейс Docker Cloud Manager (DCM) — self-hosted PaaS для одного сервера. Пользователи запускают контейнеры, собирают образы, управляют томами и развёртывают проекты Compose; администраторы управляют пользователями, квотами, рабочими настройками, мониторингом, отчётами и ресурсами всех пользователей.
 
-Currently, two official plugins are available:
+Стек: React, TypeScript и Vite; TanStack Query для состояния сервера, Zustand для состояния клиента, react-hook-form с Zod для форм, Tailwind CSS для стилей, xterm.js для терминала в браузере и Recharts для графиков. Интерфейс переведён на русский и английский (`src/shared/i18n/locales/`).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Команды
 
-## React Compiler
+Выполняются из этого каталога (нужен Node.js 24):
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Команда | Назначение |
+| --- | --- |
+| `npm ci` | Установка зависимостей |
+| `npm run dev` | Сервер разработки |
+| `npm run build` | Проверка типов и production-сборка |
+| `npm run lint` | ESLint, включая правила границ импорта |
+| `npm test` | Vitest; один файл — `npx vitest run <путь>` |
 
-## Expanding the ESLint configuration
+Сборка читает две обязательные переменные: `VITE_API_URL` (базовый URL API Gateway, например `http://localhost/api/v1`) и `VITE_BASE_DOMAIN` (домен, под которым публикуются сервисы пользователей). Для локальной разработки задайте их в `.env`; Docker-образ получает их как аргументы сборки, а корневой Compose подставляет `FRONTEND_API_URL` и `BASE_DOMAIN`.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Структура
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+  app/        корень композиции: точка входа, провайдеры, маршрутизатор, защита маршрутов, макет страницы
+  features/   по папке на предметную область: auth, dashboard, containers, images, volumes, projects, admin
+  shared/     код без знания предметной области: api, ui, i18n, lib
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Импорты идут в направлении app → features → shared. Функциональные модули импортируют друг друга только в направлениях, перечисленных в `eslint.config.js` (admin → auth и модули ресурсов; projects → containers и images; containers → images и volumes), и admin никто не импортирует. `npm run lint` падает на любом другом импорте.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Модуль хранит функции API в `api.ts`, запросы, мутации и ключи запросов — в `queries.ts`, схемы форм — в `schemas.ts`, типы данных и правила предметной области — в `model.ts`, а `components/` и `pages/` — рядом с ними. Модули ресурсов принимают область `own` или `all`, которая выбирает пользовательские или административные маршруты API. Admin разделён на `users`, `settings`, `monitoring`, `reports` и `resources`, устроенные одинаково.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Тесты лежат рядом с проверяемым кодом как `*.test.ts`.

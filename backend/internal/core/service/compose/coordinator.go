@@ -8,57 +8,135 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dependencywait"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/dependencywait"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
-type composeProgressRepository interface {
-	SaveComposeDeploymentPlan(ctx context.Context, id uuid.UUID, stage string, planJSON, resourceMapJSON []byte) error
-	UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error
+// DeploymentStore is the durable Compose deployment state that the coordinator
+// resumes, advances, cancels and rolls back.
+type DeploymentStore interface {
 	ListActiveComposeDeploymentJobs(ctx context.Context, limit int) ([]model.ComposeDeploymentJob, error)
+	UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error
+	CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
+	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
 }
 
-type composeDeploymentPlan struct {
+// SourceReleaser deletes a staged Compose source object and releases its
+// staged reservation. Source ingestion owns both.
+type SourceReleaser interface {
+	ReleaseComposeSource(ctx context.Context, objectKey string)
+}
+
+// DeploymentCoordinatorDeps contains the capabilities needed to execute
+// and recover persisted Compose deployments. Auditor and Users are optional:
+// expose audit is best effort. Now is the clock the deployment deadlines
+// read; nil means time.Now.
+type DeploymentCoordinatorDeps struct {
+	Deployments       DeploymentStore
+	Builds            BuildRepository
+	Builder           BuilderClient
+	Containers        ContainerService
+	ProjectContainers ProjectContainerRepository
+	Volumes           VolumeService
+	Docker            DockerAPI
+	Images            ImageCleaner
+	Sources           SourceReleaser
+	Config            ConfigProvider
+	Auditor           AuditRecorder
+	Users             UserInfoProvider
+	Logger            *slog.Logger
+	Now               func() time.Time
+}
+
+type deploymentPlan struct {
 	ProjectName string                 `json:"project_name"`
 	SourceType  string                 `json:"source_type"`
 	Services    []model.ComposeService `json:"services"`
 	Volumes     []model.ComposeVolume  `json:"volumes"`
 }
 
-type composeDeploymentResources struct {
+type deploymentResources struct {
 	BuildIDs             map[string]uuid.UUID `json:"build_ids,omitempty"`
 	VolumeIDs            map[string]uuid.UUID `json:"volume_ids,omitempty"`
 	ManagedVolumeAliases map[string]bool      `json:"managed_volume_aliases,omitempty"`
 	ContainerIDs         map[string]uuid.UUID `json:"container_ids,omitempty"`
 	StartedServices      map[string]bool      `json:"started_services,omitempty"`
 	ServiceGraphSaved    bool                 `json:"service_graph_saved,omitempty"`
-	CleanupStatus        string               `json:"cleanup_status,omitempty"`
-	CleanupError         string               `json:"cleanup_error,omitempty"`
+	// DependencyWaitStartedAt records, per service, when the service first
+	// waited on its dependencies.
+	DependencyWaitStartedAt map[string]time.Time `json:"dependency_wait_started_at,omitempty"`
+	CleanupStatus           string               `json:"cleanup_status,omitempty"`
+	CleanupError            string               `json:"cleanup_error,omitempty"`
 }
 
-type ComposeDeploymentCoordinator struct {
-	orchestrator *Orchestrator
-	logger       *slog.Logger
+type DeploymentCoordinator struct {
+	store             DeploymentStore
+	builds            BuildRepository
+	builder           BuilderClient
+	containers        ContainerService
+	projectContainers ProjectContainerRepository
+	volumes           VolumeService
+	docker            DockerAPI
+	images            ImageCleaner
+	sources           SourceReleaser
+	cfg               ConfigProvider
+	auditor           AuditRecorder
+	users             UserInfoProvider
+	logger            *slog.Logger
+	now               func() time.Time
 }
 
-func NewComposeDeploymentCoordinator(orchestrator *Orchestrator, logger *slog.Logger) *ComposeDeploymentCoordinator {
-	return &ComposeDeploymentCoordinator{
-		orchestrator: orchestrator,
-		logger:       logging.WithComponent(logger, "compose_deployment_coordinator"),
+func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordinator, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"deployments", deps.Deployments}, {"builds", deps.Builds},
+		{"builder", deps.Builder}, {"containers", deps.Containers},
+		{"project containers", deps.ProjectContainers}, {"volumes", deps.Volumes},
+		{"docker", deps.Docker}, {"images", deps.Images},
+		{"sources", deps.Sources}, {"config", deps.Config},
 	}
+	for _, dependency := range required {
+		if nilcheck.IsNil(dependency.value) {
+			return nil, fmt.Errorf("compose deployment coordinator: %s is required", dependency.name)
+		}
+	}
+	coordinator := &DeploymentCoordinator{
+		store:             deps.Deployments,
+		builds:            deps.Builds,
+		builder:           deps.Builder,
+		containers:        deps.Containers,
+		projectContainers: deps.ProjectContainers,
+		volumes:           deps.Volumes,
+		docker:            deps.Docker,
+		images:            deps.Images,
+		sources:           deps.Sources,
+		cfg:               deps.Config,
+		logger:            logging.WithComponent(deps.Logger, "compose_deployment_coordinator"),
+		now:               deps.Now,
+	}
+	if coordinator.now == nil {
+		coordinator.now = time.Now
+	}
+	if !nilcheck.IsNil(deps.Auditor) {
+		coordinator.auditor = deps.Auditor
+	}
+	if !nilcheck.IsNil(deps.Users) {
+		coordinator.users = deps.Users
+	}
+	return coordinator, nil
 }
 
-func (c *ComposeDeploymentCoordinator) Run(ctx context.Context) {
+func (c *DeploymentCoordinator) Run(ctx context.Context) {
 	c.logger.InfoContext(ctx, "compose deployment coordinator started")
-	interval := time.Duration(c.orchestrator.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second
-	if interval <= 0 {
-		interval = 2 * time.Second
-	}
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(c.interval())
 	defer ticker.Stop()
 
 	c.tick(ctx)
@@ -69,68 +147,84 @@ func (c *ComposeDeploymentCoordinator) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.tick(ctx)
-			interval = time.Duration(c.orchestrator.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second
-			if interval <= 0 {
-				interval = 2 * time.Second
-			}
-			ticker.Reset(interval)
+			ticker.Reset(c.interval())
 		}
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) tick(ctx context.Context) {
-	repo, ok := c.orchestrator.projectRepo.(composeProgressRepository)
-	if !ok {
-		c.logger.WarnContext(ctx, "compose progress repository is unavailable")
-		return
+func (c *DeploymentCoordinator) interval() time.Duration {
+	if configured := time.Duration(c.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second; configured > 0 {
+		return configured
 	}
-	jobs, err := repo.ListActiveComposeDeploymentJobs(ctx, 50)
+	return 2 * time.Second
+}
+
+func (c *DeploymentCoordinator) tick(ctx context.Context) {
+	jobs, err := c.store.ListActiveComposeDeploymentJobs(ctx, 50)
 	if err != nil {
 		c.logger.WarnContext(ctx, "failed to list active compose deployment jobs", "error", err)
 		return
 	}
 	for _, job := range jobs {
-		if err := c.advanceJob(ctx, repo, job); err != nil {
+		if err := c.advanceJob(ctx, job); err != nil {
 			c.logger.WarnContext(ctx, "failed to advance compose deployment job", "project_id", job.ProjectID, "job_id", job.ID, "stage", job.Stage, "error", err)
 		}
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) advanceJob(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob) error {
+func (c *DeploymentCoordinator) advanceJob(ctx context.Context, job model.ComposeDeploymentJob) error {
 	runCtx := c.jobContext(ctx, job)
 	plan, resources, err := decodeComposeDeploymentState(job)
 	if err != nil {
-		return c.failJob(runCtx, job, composeDeploymentPlan{}, composeDeploymentResources{}, err)
+		return c.failJob(runCtx, job, deploymentPlan{}, deploymentResources{}, err)
 	}
 	if job.CancelRequested || job.Status == model.ComposeDeploymentStatusCanceling {
 		return c.cancelJob(runCtx, job, plan, resources)
 	}
+	if job.Stage != model.ComposeDeploymentStageRollingBack {
+		if err := c.checkPipelineDeadline(job); err != nil {
+			return c.failJob(runCtx, job, plan, resources, err)
+		}
+	}
 
 	switch job.Stage {
 	case model.ComposeDeploymentStageBuilding:
-		return c.advanceBuilding(runCtx, repo, job, plan, resources)
+		return c.advanceBuilding(runCtx, job, plan, resources)
 	case model.ComposeDeploymentStageCreating:
-		return c.advanceCreating(runCtx, repo, job, plan, resources)
+		return c.advanceCreating(runCtx, job, plan, resources)
 	case model.ComposeDeploymentStageStarting:
-		return c.advanceStarting(runCtx, repo, job, plan, resources)
+		return c.advanceStarting(runCtx, job, plan, resources)
 	case model.ComposeDeploymentStageRollingBack:
-		return c.advanceCleanup(runCtx, repo, job, plan, resources)
+		return c.advanceCleanup(runCtx, job, plan, resources)
 	default:
 		return c.failJob(runCtx, job, plan, resources, fmt.Errorf("%w: unsupported compose deployment stage %q", apperrors.ErrConflict, job.Stage))
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) advanceBuilding(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
-	if err := c.orchestrator.ensureComposeBuilds(ctx, job, plan, &resources); err != nil {
+// checkPipelineDeadline fails a deployment still unfinished
+// compose_pipeline_timeout_minutes after its job started.
+func (c *DeploymentCoordinator) checkPipelineDeadline(job model.ComposeDeploymentJob) error {
+	minutes := c.cfg.Get().ComposePipelineTimeoutMinutes
+	if minutes <= 0 || job.StartedAt == nil {
+		return nil
+	}
+	if c.now().Sub(*job.StartedAt) <= time.Duration(minutes)*time.Minute {
+		return nil
+	}
+	return apperrors.New(apperrors.ErrTimeout, fmt.Sprintf("compose deployment timed out after %d minutes", minutes))
+}
+
+func (c *DeploymentCoordinator) advanceBuilding(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
+	if err := ensureComposeBuilds(ctx, c.builds, c.builder, job, plan, &resources); err != nil {
 		return c.failJob(ctx, job, plan, resources, err)
 	}
-	if err := c.saveProgress(ctx, repo, job, model.ProjectStatusBuilding, model.ComposeDeploymentStageBuilding, plan, resources); err != nil {
+	if err := c.saveProgress(ctx, job, model.ProjectStatusBuilding, model.ComposeDeploymentStageBuilding, plan, resources); err != nil {
 		return err
 	}
 
 	allSuccess := true
 	for serviceName, buildID := range resources.BuildIDs {
-		build, err := c.orchestrator.buildRepo.GetByID(ctx, buildID)
+		build, err := c.builds.GetByID(ctx, buildID)
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("build record %s unavailable: %w", buildID, err))
 		}
@@ -147,11 +241,11 @@ func (c *ComposeDeploymentCoordinator) advanceBuilding(ctx context.Context, repo
 	if !allSuccess {
 		return nil
 	}
-	c.orchestrator.deleteComposeSourceObject(ctx, job.SourceObjectKey)
-	return c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources)
+	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)
+	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) advanceCreating(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if resources.VolumeIDs == nil {
 		resources.VolumeIDs = make(map[string]uuid.UUID)
 	}
@@ -165,45 +259,41 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 		var volumeID uuid.UUID
 		var err error
 		if volParams.External {
-			volumeID, err = c.orchestrator.volumeService.ResolveByName(ctx, volParams.Name)
+			volumeID, err = c.volumes.ResolveByName(ctx, volParams.Name)
 			if err != nil {
 				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to resolve external volume %s: %w", volParams.Name, err))
 			}
 			resources.ManagedVolumeAliases[volParams.Alias] = false
 		} else {
 			var reused bool
-			volumeID, reused, err = c.orchestrator.volumeService.ResolveProjectManagedByName(ctx, job.ProjectID, volParams.Name)
+			volumeID, reused, err = c.volumes.ResolveProjectManagedByName(ctx, job.ProjectID, volParams.Name)
 			if err != nil {
 				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to prepare volume %s: %w", volParams.Name, err))
 			}
 			resources.ManagedVolumeAliases[volParams.Alias] = !reused
 		}
 		resources.VolumeIDs[volParams.Alias] = volumeID
-		if err := c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {
+		if err := c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {
 			return err
 		}
 	}
-	if reader, ok := c.orchestrator.volumeService.(interface {
-		GetByID(context.Context, uuid.UUID) (model.Volume, error)
-	}); ok {
-		for alias, volumeID := range resources.VolumeIDs {
-			if !resources.ManagedVolumeAliases[alias] {
-				continue
-			}
-			vol, err := reader.GetByID(ctx, volumeID)
-			if err != nil {
-				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to inspect volume %s: %w", alias, err))
-			}
-			switch vol.Status {
-			case model.VolumeStatusAvailable:
-				continue
-			case model.VolumeStatusCreating, model.VolumeStatusDeleting:
-				return nil
-			case model.VolumeStatusMissing, model.VolumeStatusError:
-				return c.failJob(ctx, job, plan, resources, fmt.Errorf("volume %s is %s", alias, vol.Status))
-			default:
-				return nil
-			}
+	for alias, volumeID := range resources.VolumeIDs {
+		if !resources.ManagedVolumeAliases[alias] {
+			continue
+		}
+		vol, err := c.volumes.GetByID(ctx, volumeID)
+		if err != nil {
+			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to inspect volume %s: %w", alias, err))
+		}
+		switch vol.Status {
+		case model.VolumeStatusAvailable:
+			continue
+		case model.VolumeStatusCreating, model.VolumeStatusDeleting:
+			return nil
+		case model.VolumeStatusMissing, model.VolumeStatusError:
+			return c.failJob(ctx, job, plan, resources, fmt.Errorf("volume %s is %s", alias, vol.Status))
+		default:
+			return nil
 		}
 	}
 
@@ -218,13 +308,19 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 			continue
 		}
 		createParams := c.containerCreateParams(job.ProjectID, plan.ProjectName, srv, resources.VolumeIDs)
-		containerID, err := c.orchestrator.contService.Create(ctx, createParams)
+		containerID, err := c.containers.Create(ctx, createParams)
+		if apperrors.LimitOf(err) == apperrors.LimitQueuedContainerCreates {
+			// The owner's create queue is full. Each created service is
+			// already saved, so a later pass creates the rest once earlier
+			// creates finish; the pipeline deadline bounds the wait.
+			return nil
+		}
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to create service %s: %w", srv.Name, err))
 		}
 		resources.ContainerIDs[srv.Name] = containerID
-		c.orchestrator.recordComposeExposeAudit(ctx, job.OwnerID, job.ProjectID, plan.ProjectName, plan.SourceType, srv, containerID, createParams.Name)
-		if err := c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {
+		c.recordComposeExposeAudit(ctx, job.OwnerID, job.ProjectID, plan.ProjectName, plan.SourceType, srv, containerID, createParams.Name)
+		if err := c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {
 			return err
 		}
 	}
@@ -236,17 +332,17 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 	if !ready {
 		return nil
 	}
-	if err := c.saveServiceGraph(ctx, repo, job, plan, &resources); err != nil {
+	if err := c.saveServiceGraph(ctx, job, plan, &resources); err != nil {
 		return c.failJob(ctx, job, plan, resources, err)
 	}
 	if resources.StartedServices == nil {
 		resources.StartedServices = make(map[string]bool)
 	}
-	return c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources)
+	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
-	if err := c.saveServiceGraph(ctx, repo, job, plan, &resources); err != nil {
+func (c *DeploymentCoordinator) advanceStarting(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
+	if err := c.saveServiceGraph(ctx, job, plan, &resources); err != nil {
 		return c.failJob(ctx, job, plan, resources, err)
 	}
 	if resources.StartedServices == nil {
@@ -261,7 +357,7 @@ func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, repo
 		if !ok {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("container mapping not found for service %s", srv.Name))
 		}
-		container, err := c.orchestrator.contService.GetByID(ctx, containerID)
+		container, err := c.containers.GetByID(ctx, containerID)
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, err)
 		}
@@ -271,7 +367,7 @@ func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, repo
 		}
 		if completed {
 			resources.StartedServices[srv.Name] = true
-			if err := c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources); err != nil {
+			if err := c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources); err != nil {
 				return err
 			}
 			continue
@@ -279,14 +375,14 @@ func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, repo
 		if containerStatusBlocksComposeStart(container.Status) {
 			return nil
 		}
-		ready, err := c.dependenciesReady(ctx, srv, resources.ContainerIDs)
+		unmet, err := c.unmetDependency(ctx, srv, resources.ContainerIDs)
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, err)
 		}
-		if !ready {
-			return nil
+		if unmet != nil {
+			return c.waitForDependency(ctx, job, plan, resources, srv.Name, *unmet)
 		}
-		if err := c.orchestrator.contService.Start(ctx, containerID); err != nil {
+		if err := c.containers.Start(ctx, containerID); err != nil {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to start service %s: %w", srv.Name, err))
 		}
 		startQueued = true
@@ -295,55 +391,77 @@ func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, repo
 		return nil
 	}
 
-	if err := c.orchestrator.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusRunning, nil); err != nil {
+	if err := c.store.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusRunning, nil); err != nil {
 		return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to mark compose project running: %w", err))
 	}
-	if err := c.orchestrator.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusSucceeded, nil); err != nil {
+	if err := c.store.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusSucceeded, nil); err != nil {
 		return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to mark compose deployment succeeded: %w", err))
 	}
-	c.orchestrator.deleteComposeSourceObject(ctx, job.SourceObjectKey)
+	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)
 	c.logger.InfoContext(ctx, "compose deployment completed", "project_id", job.ProjectID, "job_id", job.ID)
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) dependenciesReady(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (bool, error) {
+// waitForDependency keeps a service waiting on unmet and fails the deployment
+// once the service has waited longer than
+// compose_dependency_wait_timeout_minutes. The clock starts when the service
+// first waits and is saved with the job, so a Core restart does not reset it.
+func (c *DeploymentCoordinator) waitForDependency(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources, serviceName string, unmet model.ComposeDependency) error {
+	now := c.now()
+	since, ok := resources.DependencyWaitStartedAt[serviceName]
+	if !ok {
+		resources.DependencyWaitStartedAt[serviceName] = now
+		return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources)
+	}
+	minutes := c.cfg.Get().ComposeDependencyWaitTimeoutMinutes
+	if minutes <= 0 || now.Sub(since) <= time.Duration(minutes)*time.Minute {
+		return nil
+	}
+	return c.failJob(ctx, job, plan, resources, apperrors.New(apperrors.ErrTimeout,
+		fmt.Sprintf("service %s timed out waiting for dependency %s (%s)", serviceName, unmet.ServiceName, unmet.Condition)))
+}
+
+// unmetDependency returns the first dependency of srv that has not yet met
+// its condition, or nil when all have. It fails once a required dependency
+// can no longer meet its condition.
+func (c *DeploymentCoordinator) unmetDependency(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (*model.ComposeDependency, error) {
 	for _, dep := range srv.DependsOn {
 		depContainerID, ok := serviceToContainerID[dep.ServiceName]
 		if !ok {
 			if dep.Optional {
 				continue
 			}
-			return false, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
+			return nil, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
 		}
-		depContainer, err := c.orchestrator.contService.GetByID(ctx, depContainerID)
+		depContainer, err := c.containers.GetByID(ctx, depContainerID)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, err
+			return nil, err
 		}
 		if depContainer.DockerID == "" {
-			return false, nil
+			return &dep, nil
 		}
-		inspect, err := c.orchestrator.dockerAPI.InspectContainer(ctx, depContainer.DockerID)
+		inspect, err := c.docker.InspectContainer(ctx, depContainer.DockerID)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, err
+			return nil, err
 		}
 		done, err := dependencywait.EvaluateInspection(inspect, dep.Condition)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err)
+			return nil, fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err)
 		}
 		if !done {
-			return false, nil
+			return &dep, nil
 		}
 	}
-	return true, nil
+	return nil, nil
 }
 
 func composeServiceStartCompleted(serviceName string, container model.Container) (bool, error) {
@@ -383,10 +501,10 @@ func containerStatusBlocksComposeStart(status string) bool {
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) containersCreated(ctx context.Context, serviceToContainerID map[string]uuid.UUID) (bool, error) {
+func (c *DeploymentCoordinator) containersCreated(ctx context.Context, serviceToContainerID map[string]uuid.UUID) (bool, error) {
 	allCreated := true
 	for serviceName, containerID := range serviceToContainerID {
-		container, err := c.orchestrator.contService.GetByID(ctx, containerID)
+		container, err := c.containers.GetByID(ctx, containerID)
 		if err != nil {
 			return false, fmt.Errorf("container for service %s unavailable: %w", serviceName, err)
 		}
@@ -404,7 +522,7 @@ func (c *ComposeDeploymentCoordinator) containersCreated(ctx context.Context, se
 	return allCreated, nil
 }
 
-func (c *ComposeDeploymentCoordinator) saveServiceGraph(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+func (c *DeploymentCoordinator) saveServiceGraph(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources *deploymentResources) error {
 	if resources.ServiceGraphSaved {
 		return nil
 	}
@@ -412,18 +530,15 @@ func (c *ComposeDeploymentCoordinator) saveServiceGraph(ctx context.Context, rep
 	if err != nil {
 		return err
 	}
-	if err := c.orchestrator.projectRepo.SaveServiceGraph(ctx, job.ProjectID, graph); err != nil {
+	if err := c.store.SaveServiceGraph(ctx, job.ProjectID, graph); err != nil {
 		return fmt.Errorf("failed to save compose service graph: %w", err)
 	}
 	resources.ServiceGraphSaved = true
-	return c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, *resources)
+	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, *resources)
 }
 
-func (c *ComposeDeploymentCoordinator) populateExistingContainers(ctx context.Context, projectID uuid.UUID, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
-	if c.orchestrator.resourceRepo == nil {
-		return nil
-	}
-	containers, err := c.orchestrator.resourceRepo.GetByProjectID(ctx, projectID)
+func (c *DeploymentCoordinator) populateExistingContainers(ctx context.Context, projectID uuid.UUID, plan deploymentPlan, resources *deploymentResources) error {
+	containers, err := c.projectContainers.GetByProjectID(ctx, projectID)
 	if err != nil {
 		return err
 	}
@@ -440,7 +555,7 @@ func (c *ComposeDeploymentCoordinator) populateExistingContainers(ctx context.Co
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) containerCreateParams(projectID uuid.UUID, projectName string, srv model.ComposeService, volumeNameMap map[string]uuid.UUID) model.ContainerCreateParams {
+func (c *DeploymentCoordinator) containerCreateParams(projectID uuid.UUID, projectName string, srv model.ComposeService, volumeNameMap map[string]uuid.UUID) model.ContainerCreateParams {
 	var resolvedMounts []model.VolumeMountParams
 	for _, mount := range srv.VolumeMounts {
 		if volumeID, ok := volumeNameMap[mount.VolumeName]; ok {
@@ -464,48 +579,45 @@ func (c *ComposeDeploymentCoordinator) containerCreateParams(projectID uuid.UUID
 		Entrypoint:   srv.Entrypoint,
 		Restart:      srv.Restart,
 		Healthcheck:  srv.Healthcheck,
+
+		MemoryReservationMB:      srv.MemoryReservationMB,
+		CPUReservationMillicores: srv.CPUReservationMillicores,
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources, cause error) error {
-	repo, ok := c.orchestrator.projectRepo.(composeProgressRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "compose progress repository is unavailable")
-	}
-	state := c.stateFromResources(job, resources)
-	c.orchestrator.cancelBuilds(ctx, state.buildIDs)
+func (c *DeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources, cause error) error {
 	errMsg := apperrors.SafeMessage(cause)
 	resources.CleanupStatus = model.ComposeDeploymentStatusFailed
 	resources.CleanupError = errMsg
-	if err := c.orchestrator.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := c.store.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return err
 	}
+	// Cancel builds only once the project is failed: each canceled build
+	// cascades to the deployment, which would otherwise record a cancel.
+	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	c.logger.WarnContext(ctx, "compose deployment failed", "project_id", job.ProjectID, "job_id", job.ID, "project_name", plan.ProjectName, "error", cause)
-	if err := c.saveProgress(ctx, repo, job, model.ProjectStatusFailed, model.ComposeDeploymentStageRollingBack, plan, resources); err != nil {
+	if err := c.saveProgress(ctx, job, model.ProjectStatusFailed, model.ComposeDeploymentStageRollingBack, plan, resources); err != nil {
 		return err
 	}
-	return c.cleanupJob(ctx, repo, job, plan, resources)
+	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) cancelJob(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
-	repo, ok := c.orchestrator.projectRepo.(composeProgressRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "compose progress repository is unavailable")
-	}
+func (c *DeploymentCoordinator) cancelJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
+	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	resources.CleanupStatus = model.ComposeDeploymentStatusCanceled
 	resources.CleanupError = "compose deployment canceled"
-	c.orchestrator.deleteComposeSourceObject(ctx, job.SourceObjectKey)
-	if err := c.saveProgress(ctx, repo, job, model.ProjectStatusCanceled, model.ComposeDeploymentStageRollingBack, plan, resources); err != nil {
+	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)
+	if err := c.saveProgress(ctx, job, model.ProjectStatusCanceled, model.ComposeDeploymentStageRollingBack, plan, resources); err != nil {
 		return err
 	}
-	return c.cleanupJob(ctx, repo, job, plan, resources)
+	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceCleanup(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
-	return c.cleanupJob(ctx, repo, job, plan, resources)
+func (c *DeploymentCoordinator) advanceCleanup(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
+	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) cleanupJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if resources.CleanupStatus == "" {
 		resources.CleanupStatus = model.ComposeDeploymentStatusFailed
 	}
@@ -520,13 +632,13 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo comp
 			errMsg = "compose deployment canceled"
 		}
 	}
-	if err := c.orchestrator.projectRepo.UpdateStatus(ctx, job.ProjectID, projectStatus, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := c.store.UpdateStatus(ctx, job.ProjectID, projectStatus, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return err
 	}
 
 	cleanupDone := true
 	for _, containerID := range resources.ContainerIDs {
-		if err := c.orchestrator.contService.Delete(ctx, containerID); err != nil {
+		if err := c.containers.Delete(ctx, containerID); err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
 				continue
 			}
@@ -543,7 +655,7 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo comp
 			continue
 		}
 		if resources.volumeAliasCreated(alias) {
-			if err := c.orchestrator.volumeService.Delete(ctx, volumeID); err != nil {
+			if err := c.volumes.Delete(ctx, volumeID); err != nil {
 				if errors.Is(err, apperrors.ErrNotFound) {
 					continue
 				}
@@ -556,50 +668,53 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo comp
 			cleanupDone = false
 			continue
 		}
-		if err := c.orchestrator.volumeService.UnlinkProjectVolume(ctx, job.ProjectID, volumeID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		if err := c.volumes.UnlinkProjectVolume(ctx, job.ProjectID, volumeID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			return err
 		}
 	}
 	if !cleanupDone {
-		return c.saveProgress(ctx, repo, job, projectStatus, model.ComposeDeploymentStageRollingBack, plan, resources)
+		return c.saveProgress(ctx, job, projectStatus, model.ComposeDeploymentStageRollingBack, plan, resources)
 	}
 
-	state := c.stateFromResources(job, resources)
-	c.orchestrator.deleteSuccessfulBuildImages(ctx, state.buildIDs, c.logger.With("project_id", job.ProjectID, "job_id", job.ID))
-	if err := c.orchestrator.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, resources.CleanupStatus, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	c.deleteSuccessfulBuildImages(ctx, resources.buildIDList(), c.logger.With("project_id", job.ProjectID, "job_id", job.ID))
+	if err := c.store.CompleteComposeDeploymentJob(ctx, job.ID, resources.CleanupStatus, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return err
 	}
-	c.orchestrator.deleteComposeSourceObject(ctx, job.SourceObjectKey)
+	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) stateFromResources(job model.ComposeDeploymentJob, resources composeDeploymentResources) *deploymentState {
-	state := &deploymentState{
-		jobID:     job.ID,
-		projectID: job.ProjectID,
-		scope:     accessscope.Scope{Kind: accessscope.KindUser, UserID: job.OwnerID},
-		requestID: job.RequestID,
+func (c *DeploymentCoordinator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs []uuid.UUID, logger *slog.Logger) {
+	for _, buildID := range buildIDs {
+		build, err := c.builds.GetByID(ctx, buildID)
+		if err != nil {
+			continue
+		}
+		if build.Status != model.BuildStatusSuccess {
+			continue
+		}
+		if err := c.images.Delete(ctx, build.ImageID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			logger.WarnContext(ctx, "failed to delete compose-built image during cancellation cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
+		}
 	}
-	for _, buildID := range resources.BuildIDs {
-		state.buildIDs = append(state.buildIDs, buildID)
-	}
-	for _, containerID := range resources.ContainerIDs {
-		state.createdContainers = append(state.createdContainers, containerID)
-	}
-	for _, volumeID := range resources.VolumeIDs {
-		state.createdVolumes = append(state.createdVolumes, volumeID)
-	}
-	return state
 }
 
-func (r composeDeploymentResources) volumeAliasCreated(alias string) bool {
+func (r deploymentResources) buildIDList() []uuid.UUID {
+	buildIDs := make([]uuid.UUID, 0, len(r.BuildIDs))
+	for _, buildID := range r.BuildIDs {
+		buildIDs = append(buildIDs, buildID)
+	}
+	return buildIDs
+}
+
+func (r deploymentResources) volumeAliasCreated(alias string) bool {
 	if len(r.ManagedVolumeAliases) == 0 {
 		return true
 	}
 	return r.ManagedVolumeAliases[alias]
 }
 
-func (c *ComposeDeploymentCoordinator) planVolumeManaged(plan composeDeploymentPlan, alias string) bool {
+func (c *DeploymentCoordinator) planVolumeManaged(plan deploymentPlan, alias string) bool {
 	for _, vol := range plan.Volumes {
 		if vol.Alias == alias {
 			return !vol.External
@@ -608,22 +723,22 @@ func (c *ComposeDeploymentCoordinator) planVolumeManaged(plan composeDeploymentP
 	return false
 }
 
-func (c *ComposeDeploymentCoordinator) saveProgress(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, projectStatus string, stage string, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) saveProgress(ctx context.Context, job model.ComposeDeploymentJob, projectStatus string, stage string, plan deploymentPlan, resources deploymentResources) error {
 	planJSON, resourceJSON, err := encodeComposeDeploymentState(plan, resources)
 	if err != nil {
 		return err
 	}
-	return repo.UpdateComposeDeploymentProgress(ctx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON)
+	return c.store.UpdateComposeDeploymentProgress(ctx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON)
 }
 
-func (c *ComposeDeploymentCoordinator) jobContext(ctx context.Context, job model.ComposeDeploymentJob) context.Context {
+func (c *DeploymentCoordinator) jobContext(ctx context.Context, job model.ComposeDeploymentJob) context.Context {
 	ctx = logging.ContextWithRequestID(ctx, job.RequestID)
 	return accessscope.WithScope(ctx, accessscope.Scope{Kind: accessscope.KindUser, UserID: job.OwnerID})
 }
 
-func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (composeDeploymentPlan, composeDeploymentResources, error) {
-	var plan composeDeploymentPlan
-	var resources composeDeploymentResources
+func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (deploymentPlan, deploymentResources, error) {
+	var plan deploymentPlan
+	var resources deploymentResources
 	if len(job.PlanJSON) == 0 {
 		return plan, resources, apperrors.New(apperrors.ErrConflict, "compose deployment plan is missing")
 	}
@@ -639,7 +754,7 @@ func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (composeDeploy
 	return plan, resources, nil
 }
 
-func encodeComposeDeploymentState(plan composeDeploymentPlan, resources composeDeploymentResources) ([]byte, []byte, error) {
+func encodeComposeDeploymentState(plan deploymentPlan, resources deploymentResources) ([]byte, []byte, error) {
 	ensureComposeResourceMaps(&resources)
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
@@ -652,7 +767,7 @@ func encodeComposeDeploymentState(plan composeDeploymentPlan, resources composeD
 	return planJSON, resourceJSON, nil
 }
 
-func ensureComposeResourceMaps(resources *composeDeploymentResources) {
+func ensureComposeResourceMaps(resources *deploymentResources) {
 	if resources.BuildIDs == nil {
 		resources.BuildIDs = make(map[string]uuid.UUID)
 	}
@@ -667,5 +782,8 @@ func ensureComposeResourceMaps(resources *composeDeploymentResources) {
 	}
 	if resources.StartedServices == nil {
 		resources.StartedServices = make(map[string]bool)
+	}
+	if resources.DependencyWaitStartedAt == nil {
+		resources.DependencyWaitStartedAt = make(map[string]time.Time)
 	}
 }

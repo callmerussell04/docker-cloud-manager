@@ -1,11 +1,11 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) GetUserStats(ctx context.Context) (model.UserStats, error) {
@@ -26,44 +26,57 @@ func (c *CoreClient) GetSystemMonitoring(ctx context.Context) (model.SystemMonit
 
 func userStatsFromProto(data *coreapi.UserStatsResponse) model.UserStats {
 	return model.UserStats{
-		ContainersTotal:   data.GetContainersTotal(),
-		ContainersRunning: data.GetContainersRunning(),
-		ContainersQuota:   data.GetContainersQuota(),
-		RamUsedBytes:      data.GetRamUsedBytes(),
-		RamQuotaBytes:     data.GetRamQuotaBytes(),
-		DiskUsedMB:        data.GetDiskUsedMb(),
-		DiskQuotaMB:       data.GetDiskQuotaMb(),
-		VolumesTotal:      data.GetVolumesTotal(),
-		VolumesQuota:      data.GetVolumesQuota(),
-		ImagesTotal:       data.GetImagesTotal(),
-		ProjectsTotal:     data.GetProjectsTotal(),
+		ContainersTotal:    data.GetContainersTotal(),
+		ContainersRunning:  data.GetContainersRunning(),
+		ContainersQuota:    data.GetContainersQuota(),
+		RamUsedBytes:       data.GetRamUsedBytes(),
+		RamQuotaBytes:      data.GetRamQuotaBytes(),
+		CPUUsedMillicores:  data.GetCpuUsedMillicores(),
+		CPUQuotaMillicores: data.GetCpuQuotaMillicores(),
+		DiskUsedMB:         data.GetDiskUsedMb(),
+		DiskQuotaMB:        data.GetDiskQuotaMb(),
+		VolumesTotal:       data.GetVolumesTotal(),
+		VolumesQuota:       data.GetVolumesQuota(),
+		ImagesTotal:        data.GetImagesTotal(),
+		ProjectsTotal:      data.GetProjectsTotal(),
 	}
 }
 
 func systemMonitoringFromProto(data *coreapi.SystemMonitoringResponse) model.SystemMonitoring {
 	return model.SystemMonitoring{
-		CPUPercent:                  data.GetCpuPercent(),
-		MemoryTotalBytes:            data.GetMemoryTotalBytes(),
-		MemoryUsedBytes:             data.GetMemoryUsedBytes(),
-		MemoryAvailableBytes:        data.GetMemoryAvailableBytes(),
-		DiskTotalBytes:              data.GetDiskTotalBytes(),
-		DiskUsedBytes:               data.GetDiskUsedBytes(),
-		DiskFreeBytes:               data.GetDiskFreeBytes(),
-		DCMReservedMemoryBytes:      data.GetDcmReservedMemoryBytes(),
-		DCMReservedBuildMemoryBytes: data.GetDcmReservedBuildMemoryBytes(),
-		DCMDiskUsedBytes:            data.GetDcmDiskUsedBytes(),
-		HostMinFreeDiskBytes:        data.GetHostMinFreeDiskBytes(),
-		AdmissionStatus:             data.GetAdmissionStatus(),
-		AdmissionReasons:            append([]string(nil), data.GetAdmissionReasons()...),
-		ContainersTotal:             data.GetContainersTotal(),
-		ContainersRunning:           data.GetContainersRunning(),
-		ContainersStopped:           data.GetContainersStopped(),
-		ContainersError:             data.GetContainersError(),
-		ContainersMissing:           data.GetContainersMissing(),
-		VolumesTotal:                data.GetVolumesTotal(),
-		ImagesTotal:                 data.GetImagesTotal(),
-		BuildsTotal:                 data.GetBuildsTotal(),
-		ProjectsTotal:               data.GetProjectsTotal(),
-		ObservedAt:                  data.GetObservedAt(),
+		CPUPercent:                    data.GetCpuPercent(),
+		MemoryTotalBytes:              data.GetMemoryTotalBytes(),
+		MemoryUsedBytes:               data.GetMemoryUsedBytes(),
+		MemoryAvailableBytes:          data.GetMemoryAvailableBytes(),
+		DiskTotalBytes:                data.GetDiskTotalBytes(),
+		DiskUsedBytes:                 data.GetDiskUsedBytes(),
+		DiskFreeBytes:                 data.GetDiskFreeBytes(),
+		DCMReservedMemoryBytes:        data.GetDcmReservedMemoryBytes(),
+		DCMReservedBuildMemoryBytes:   data.GetDcmReservedBuildMemoryBytes(),
+		DCMReservedCPUMillicores:      data.GetDcmReservedCpuMillicores(),
+		DCMReservedBuildCPUMillicores: data.GetDcmReservedBuildCpuMillicores(),
+		DCMBorrowedMemoryBytes:        data.GetDcmBorrowedMemoryBytes(),
+		RootfsQuotaStatus:             data.GetRootfsQuotaStatus(),
+		DCMDiskUsedBytes:              data.GetDcmDiskUsedBytes(),
+		DCMReservedVolumeBytes:        data.GetDcmReservedVolumeBytes(),
+		DCMUnusedVolumePromiseBytes:   data.GetDcmUnusedVolumePromiseBytes(),
+		VolumeSizeMode:                data.GetVolumeSizeMode(),
+		HostMinFreeDiskBytes:          data.GetHostMinFreeDiskBytes(),
+		BuildClaimCap:                 int(data.GetBuildClaimCap()),
+		MaxConcurrentBuilds:           int(data.GetMaxConcurrentBuilds()),
+		BuildsActive:                  int(data.GetBuildsActive()),
+		CPUTotalMillicores:            data.GetCpuTotalMillicores(),
+		AdmissionStatus:               data.GetAdmissionStatus(),
+		AdmissionReasons:              append([]string(nil), data.GetAdmissionReasons()...),
+		ContainersTotal:               data.GetContainersTotal(),
+		ContainersRunning:             data.GetContainersRunning(),
+		ContainersStopped:             data.GetContainersStopped(),
+		ContainersError:               data.GetContainersError(),
+		ContainersMissing:             data.GetContainersMissing(),
+		VolumesTotal:                  data.GetVolumesTotal(),
+		ImagesTotal:                   data.GetImagesTotal(),
+		BuildsTotal:                   data.GetBuildsTotal(),
+		ProjectsTotal:                 data.GetProjectsTotal(),
+		ObservedAt:                    data.GetObservedAt(),
 	}
 }

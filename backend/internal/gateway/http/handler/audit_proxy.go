@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/gin-gonic/gin"
 )
 

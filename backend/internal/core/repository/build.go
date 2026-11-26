@@ -2,86 +2,114 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type BuildRepository struct {
-	db *sql.DB
+	db     *pgxpool.Pool
+	lockDB *pgxpool.Pool
 }
 
-func NewBuildRepository(db *sql.DB) *BuildRepository {
-	return &BuildRepository{db: db}
+func NewBuildRepository(db, lockDB *pgxpool.Pool) *BuildRepository {
+	return &BuildRepository{db: db, lockDB: lockDB}
 }
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12, $13, $14, $15)
 	`
-	var finishedAt sql.NullTime
-	if b.FinishedAt != nil {
-		finishedAt.Time = *b.FinishedAt
-		finishedAt.Valid = true
-	}
+	finishedAt := b.FinishedAt
 
-	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.OwnerID, nullableUUID(b.ProjectID), nullableStringValue(b.ProjectServiceName), b.Status, b.LogFilePath, b.ArchiveObjectKey, b.StartedAt, finishedAt)
+	_, err := r.db.Exec(
+		ctx,
+		query,
+		b.ID,
+		nilUUIDAsNull(b.ImageID),
+		b.OwnerID,
+		nullableUUID(b.ProjectID),
+		nullIfZero(b.ProjectServiceName),
+		b.Status,
+		b.LogObjectKey,
+		b.ArchiveObjectKey,
+		nullTimeIfZero(b.CreatedAt),
+		nullTimeIfZero(b.StartedAt),
+		finishedAt,
+		b.Tag,
+		b.Source.Kind,
+		b.Source.Location,
+		b.Source.Ref,
+	)
 	return err
 }
 
 func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return wrapOp("build create queued build", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	imgStatus := img.Status
 	if imgStatus == "" {
 		imgStatus = model.ImageStatusBuilding
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO images (id, owner_id, tag, size_mb, metadata, status)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO images (id, owner_id, tag, registry_tag, size_bytes, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.Metadata, imgStatus); err != nil {
-		var pgErr *pq.Error
+	`, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.SizeBytes, imgStatus); err != nil {
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
-		return err
+		return wrapOp("build create queued build", err)
 	}
 
-	var finishedAt sql.NullTime
-	if build.FinishedAt != nil {
-		finishedAt.Time = *build.FinishedAt
-		finishedAt.Valid = true
-	}
-	if _, err := tx.ExecContext(ctx, `
-			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, build.ID, build.ImageID, build.OwnerID, nullableUUID(build.ProjectID), nullableStringValue(build.ProjectServiceName), build.Status, build.LogFilePath, build.ArchiveObjectKey, build.StartedAt, finishedAt); err != nil {
-		return err
+	finishedAt := build.FinishedAt
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12, $13, $14, $15)
+		`,
+		build.ID,
+		build.ImageID,
+		build.OwnerID,
+		nullableUUID(build.ProjectID),
+		nullIfZero(build.ProjectServiceName),
+		build.Status,
+		build.LogObjectKey,
+		build.ArchiveObjectKey,
+		nullTimeIfZero(build.CreatedAt),
+		nullTimeIfZero(build.StartedAt),
+		finishedAt,
+		img.Tag,
+		build.Source.Kind,
+		build.Source.Location,
+		build.Source.Ref,
+	); err != nil {
+		return wrapOp("build create queued build", err)
 	}
 
 	outboxStatus := outbox.Status
 	if outboxStatus == "" {
 		outboxStatus = model.BuildOutboxStatusPending
 	}
-	if _, err := tx.ExecContext(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO build_queue_outbox (id, build_id, exchange, routing_key, payload, status, attempts, last_error)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, outbox.ID, outbox.BuildID, outbox.Exchange, outbox.RoutingKey, string(outbox.Payload), outboxStatus, outbox.Attempts, nullableString(outbox.LastError)); err != nil {
-		return err
+	`, outbox.ID, outbox.BuildID, outbox.Exchange, outbox.RoutingKey, string(outbox.Payload), outboxStatus, outbox.Attempts, outbox.LastError); err != nil {
+		return wrapOp("build create queued build", err)
 	}
 
-	return tx.Commit()
+	return commitTx(ctx, tx, "create queued build")
 }
 
 func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
@@ -91,21 +119,17 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 		WHERE id = $3
 	`
 
-	var finishedAt sql.NullTime
+	var finishedAt *time.Time
 	if model.IsBuildTerminalStatus(status) {
-		finishedAt.Time = time.Now()
-		finishedAt.Valid = true
+		finishedAt = ptr(time.Now())
 	}
 
-	res, err := r.db.ExecContext(ctx, query, status, finishedAt, id)
+	res, err := r.db.Exec(ctx, query, status, finishedAt, id)
 	if err != nil {
 		return err
 	}
 
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -113,78 +137,12 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	return nil
 }
 
-func (r *BuildRepository) StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error) {
-	query := `
-		UPDATE builds
-		SET status = $1, finished_at = NULL
-		WHERE id = $2 AND status = $3
-		RETURNING id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
-	`
-	var b model.Build
-	var finishedAt sql.NullTime
-	var projectID sql.NullString
-	var projectServiceName sql.NullString
-	err := r.db.QueryRowContext(ctx, query, model.BuildStatusRunning, id, model.BuildStatusPending).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
-	)
-	if err == nil {
-		if finishedAt.Valid {
-			b.FinishedAt = &finishedAt.Time
-		}
-		applyBuildProjectFields(&b, projectID, projectServiceName)
-		return b, true, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return model.Build{}, false, err
-	}
-
-	b, err = r.GetByID(ctx, id)
-	if err != nil {
-		return model.Build{}, false, err
-	}
-	return b, false, nil
-}
-
-func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
-	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
-		FROM builds
-		WHERE image_id = $1
-		ORDER BY started_at DESC
-	`
-	rows, err := r.db.QueryContext(ctx, query, imageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var builds []model.Build
-
-	for rows.Next() {
-		var b model.Build
-		var finishedAt sql.NullTime
-		var projectID sql.NullString
-		var projectServiceName sql.NullString
-
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
-			return nil, err
-		}
-		applyBuildProjectFields(&b, projectID, projectServiceName)
-
-		if finishedAt.Valid {
-			b.FinishedAt = &finishedAt.Time
-		}
-		builds = append(builds, b)
-	}
-	return builds, rows.Err()
-}
-
 func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+	rows, err := r.db.Query(ctx, `
+		SELECT `+buildColumns+`
 		FROM builds
 		WHERE project_id = $1
-		ORDER BY started_at DESC
+		ORDER BY created_at DESC
 	`, projectID)
 	if err != nil {
 		return nil, err
@@ -204,42 +162,27 @@ func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUI
 
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		SELECT ` + buildColumns + `
 		FROM builds
 		WHERE id = $1
 	`
-	var b model.Build
-	var finishedAt sql.NullTime
-	var projectID sql.NullString
-	var projectServiceName sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
-	)
+	b, err := scanBuild(r.db.QueryRow(ctx, query, id))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Build{}, apperrors.ErrNotFound
 		}
 		return model.Build{}, err
 	}
-
-	if finishedAt.Valid {
-		b.FinishedAt = &finishedAt.Time
-	}
-	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }
 
 func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM builds WHERE id = $1`
-	res, err := r.db.ExecContext(ctx, query, id)
+	res, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -248,11 +191,11 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at
+		SELECT ` + buildColumns + `
 		FROM builds
-		WHERE status IN ($1, $2) AND started_at < $3
+		WHERE status = $1 AND started_at < $2
 	`
-	rows, err := r.db.QueryContext(ctx, query, model.BuildStatusPending, model.BuildStatusRunning, threshold)
+	rows, err := r.db.Query(ctx, query, model.BuildStatusRunning, threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -260,13 +203,10 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 
 	var builds []model.Build
 	for rows.Next() {
-		var b model.Build
-		var projectID sql.NullString
-		var projectServiceName sql.NullString
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt); err != nil {
+		b, err := scanBuild(rows)
+		if err != nil {
 			return nil, err
 		}
-		applyBuildProjectFields(&b, projectID, projectServiceName)
 		builds = append(builds, b)
 	}
 	return builds, rows.Err()
@@ -281,19 +221,19 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	}
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM builds`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
-		FROM builds` + where + ` ORDER BY started_at DESC`
+		SELECT ` + buildColumns + `
+		FROM builds` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
 		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -313,13 +253,13 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 func (r *BuildRepository) CountAll(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM builds`
 	var count int
-	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	err := r.db.QueryRow(ctx, query).Scan(&count)
 	return count, err
 }
 
 func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error) {
 	var count int
-	err := r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM builds
 		WHERE owner_id = $1 AND status IN ($2, $3)
@@ -327,9 +267,33 @@ func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.U
 	return count, err
 }
 
+// ListActiveByOwner returns ownerID's pending and running builds, oldest first.
+func (r *BuildRepository) ListActiveByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT `+buildColumns+`
+		FROM builds
+		WHERE owner_id = $1 AND status IN ($2, $3)
+		ORDER BY created_at
+	`, ownerID, model.BuildStatusPending, model.BuildStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	builds := make([]model.Build, 0)
+	for rows.Next() {
+		build, err := scanBuild(rows)
+		if err != nil {
+			return nil, err
+		}
+		builds = append(builds, build)
+	}
+	return builds, rows.Err()
+}
+
 func (r *BuildRepository) CountActive(ctx context.Context) (int, error) {
 	var count int
-	err := r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM builds
 		WHERE status IN ($1, $2)
@@ -338,53 +302,74 @@ func (r *BuildRepository) CountActive(ctx context.Context) (int, error) {
 }
 
 func (r *BuildRepository) AcquireCapacityLock(ctx context.Context) (func(), error) {
-	conn, err := r.db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	unlock := func() {
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "dcm:capacity")
-		_ = conn.Close()
-	}
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "dcm:capacity"); err != nil {
-		unlock()
-		return nil, err
-	}
-	return unlock, nil
+	return acquireAdmissionLock(ctx, r.lockDB, []string{"dcm:capacity"})
 }
 
-func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+// LeasePendingBuildOutbox leases up to limit outbox rows for release to
+// Builder. A build is released when its message is published; until then it
+// waits here, pending. An owner's next build is leased only while the owner
+// has fewer than maxReleasedPerOwner released builds that are pending or
+// running, counting the builds leased in this batch, so one owner cannot hold
+// the queue and an owner alone still fills every build slot. A row whose
+// build is no longer pending takes no place: it is leased so the relay
+// discards it. Eligible rows are leased oldest first. A row left publishing
+// for over a minute is retried in its turn and does not hold its own place.
+// Core runs one relay, so the rule needs no lock beyond the row locks.
+func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit, maxReleasedPerOwner int) ([]model.BuildQueueOutbox, error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	rows, err := tx.QueryContext(ctx, `
-		WITH next AS (
-			SELECT id
-			FROM build_queue_outbox
-			WHERE status = $1
-			   OR (status = $2 AND updated_at < NOW() - INTERVAL '1 minute')
-			ORDER BY created_at
+	rows, err := tx.Query(ctx, `
+		WITH released AS (
+			SELECT b.owner_id, COUNT(*) AS builds
+			FROM builds b
+			JOIN build_queue_outbox o ON o.build_id = b.id
+			WHERE b.status = $5
+			   OR (b.status = $4 AND (o.status = $6
+			       OR (o.status = $2 AND o.updated_at >= NOW() - INTERVAL '1 minute')))
+			GROUP BY b.owner_id
+		),
+		candidates AS (
+			SELECT o.id,
+			       b.status = $4 AS waits,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY b.owner_id, b.status = $4
+			           ORDER BY o.created_at, o.id) AS place,
+			       COALESCE(r.builds, 0) AS released
+			FROM build_queue_outbox o
+			JOIN builds b ON b.id = o.build_id
+			LEFT JOIN released r ON r.owner_id = b.owner_id
+			WHERE o.status = $1
+			   OR (o.status = $2 AND o.updated_at < NOW() - INTERVAL '1 minute')
+		),
+		next AS (
+			SELECT o.id
+			FROM build_queue_outbox o
+			JOIN candidates c ON c.id = o.id
+			WHERE NOT c.waits OR c.released + c.place <= $7
+			ORDER BY o.created_at, o.id
 			LIMIT $3
-			FOR UPDATE SKIP LOCKED
+			FOR UPDATE OF o SKIP LOCKED
 		)
 		UPDATE build_queue_outbox o
 		SET status = $2, attempts = attempts + 1, updated_at = NOW()
 		FROM next
 		WHERE o.id = next.id
 		RETURNING o.id, o.build_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
-	`, model.BuildOutboxStatusPending, model.BuildOutboxStatusPublishing, limit)
+	`, model.BuildOutboxStatusPending, model.BuildOutboxStatusPublishing, limit,
+		model.BuildStatusPending, model.BuildStatusRunning, model.BuildOutboxStatusPublished, maxReleasedPerOwner)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
 	defer rows.Close()
 
 	var items []model.BuildQueueOutbox
 	for rows.Next() {
 		var item model.BuildQueueOutbox
-		var lastError sql.NullString
+		var lastError *string
 		if err := rows.Scan(
 			&item.ID,
 			&item.BuildID,
@@ -397,134 +382,130 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
-			return nil, err
+			return nil, wrapOp("build lease pending build outbox", err)
 		}
-		if lastError.Valid {
-			item.LastError = &lastError.String
-		}
+		item.LastError = lastError
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(ctx, tx, "lease pending build outbox"); err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
+// MarkBuildOutboxPublished records the broker's confirmation and empties the
+// payload: it holds the build arguments, and a published row is never queued
+// again.
 func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
-		SET status = $1, published_at = NOW(), updated_at = NOW(), last_error = NULL
+		SET status = $1, payload = '{}'::jsonb, published_at = NOW(), updated_at = NOW(), last_error = NULL
 		WHERE id = $2
 	`, model.BuildOutboxStatusPublished, id)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox published", err)
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
 	return nil
 }
 
+// MarkBuildOutboxDiscarded ends a row that must not be published and empties
+// its payload, as MarkBuildOutboxPublished does.
 func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
-	var lastError sql.NullString
+	var lastError *string
 	if cause != nil {
-		lastError.String = cause.Error()
-		lastError.Valid = true
+		lastError = ptr(cause.Error())
 	}
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
-		SET status = $1, last_error = $2, updated_at = NOW()
+		SET status = $1, payload = '{}'::jsonb, last_error = $2, updated_at = NOW()
 		WHERE id = $3
 	`, model.BuildOutboxStatusDiscarded, lastError, id)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox discarded", err)
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
 	return nil
 }
 
+// buildColumns is the column list scanBuild reads.
+const buildColumns = `id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref`
+
+// scanBuild reads one build. A build whose image record was deleted has no
+// image reference, which the model carries as uuid.Nil.
 func scanBuild(s scanner) (model.Build, error) {
 	var b model.Build
-	var finishedAt sql.NullTime
-	var projectID sql.NullString
-	var projectServiceName sql.NullString
-	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+	var imageID *uuid.UUID
+	var finishedAt *time.Time
+	var startedAt *time.Time
+	var projectID *string
+	var projectServiceName *string
+	if err := s.Scan(&b.ID, &imageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt, &b.Tag, &b.Source.Kind, &b.Source.Location, &b.Source.Ref); err != nil {
 		return model.Build{}, err
 	}
-	if finishedAt.Valid {
-		b.FinishedAt = &finishedAt.Time
-	}
+	b.ImageID = valueOrZero(imageID)
+	b.FinishedAt = finishedAt
+	b.StartedAt = valueOrZero(startedAt)
 	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }
 
+// MarkBuildOutboxPending returns a leased row to the queue after a failed
+// publication. Only a publishing row qualifies: a published or discarded row
+// has no payload left to publish.
 func (r *BuildRepository) MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {
-	var lastError sql.NullString
+	var lastError *string
 	if cause != nil {
-		lastError.String = cause.Error()
-		lastError.Valid = true
+		lastError = ptr(cause.Error())
 	}
 
-	res, err := r.db.ExecContext(ctx, `
+	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
 		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE id = $3
-	`, model.BuildOutboxStatusPending, lastError, id)
+		WHERE id = $3 AND status = $4
+	`, model.BuildOutboxStatusPending, lastError, id, model.BuildOutboxStatusPublishing)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox pending", err)
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
 	return nil
 }
 
-func nullableString(value *string) sql.NullString {
+// nilUUIDAsNull stores uuid.Nil as NULL.
+func nilUUIDAsNull(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
+func nullableUUID(value *uuid.UUID) *string {
 	if value == nil {
-		return sql.NullString{}
+		return nil
 	}
-	return sql.NullString{String: *value, Valid: true}
+	return ptr(value.String())
 }
 
-func nullableStringValue(value string) sql.NullString {
-	if value == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: value, Valid: true}
-}
-
-func nullableUUID(value *uuid.UUID) sql.NullString {
-	if value == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: value.String(), Valid: true}
-}
-
-func applyBuildProjectFields(b *model.Build, projectID sql.NullString, projectServiceName sql.NullString) {
-	if projectID.Valid {
-		if parsed, err := uuid.Parse(projectID.String); err == nil {
+func applyBuildProjectFields(b *model.Build, projectID *string, projectServiceName *string) {
+	if projectID != nil {
+		if parsed, err := uuid.Parse(*projectID); err == nil {
 			b.ProjectID = &parsed
 		}
 	}
-	if projectServiceName.Valid {
-		b.ProjectServiceName = projectServiceName.String
+	if projectServiceName != nil {
+		b.ProjectServiceName = *projectServiceName
 	}
 }

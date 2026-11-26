@@ -2,14 +2,11 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -18,17 +15,17 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
-	httprouter "github.com/callmerussell04/docker-cloud-manager/internal/gateway/http"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
+	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 )
 
 type App struct {
@@ -41,89 +38,44 @@ type App struct {
 	coreConn        *grpc.ClientConn
 }
 
-type Config struct {
-	Port                int
-	SSOTarget           string
-	CoreTarget          string
-	CoreHTTPTarget      string
-	TelemetryHTTPTarget string
-	InternalToken       string
-
-	HTTP      HTTPServerConfig
-	Router    httprouter.Config
-	Cookie    handler.CookieConfig
-	Proxy     ProxyConfig
-	GRPC      GRPCConfig
-	Readiness ReadinessConfig
-
-	TelemetryTicketTTL time.Duration
-}
-
-type HTTPServerConfig struct {
-	ReadHeaderTimeout time.Duration
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
-	MaxHeaderBytes    int
-}
-
-type ProxyConfig struct {
-	DialTimeout           time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ResponseHeaderTimeout time.Duration
-	IdleConnTimeout       time.Duration
-	ExpectContinueTimeout time.Duration
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
-}
-
-type GRPCConfig struct {
-	RequestTimeout    time.Duration
-	MinConnectTimeout time.Duration
-	TLS               GRPCTLSConfig
-}
-
-type GRPCTLSConfig struct {
-	Enabled    bool
-	CAFile     string
-	CertFile   string
-	KeyFile    string
-	ServerName string
-}
-
-type ReadinessConfig struct {
-	Timeout time.Duration
-}
-
-func New(cfg Config, logger *slog.Logger) (*App, error) {
+func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	clients, err := newGRPCClients(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	useCases := newCoreUseCases(cfg, clients)
-	proxies, err := newProxyHandlers(cfg, useCases)
+	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
+	proxies, err := newProxyHandlers(cfg, telemetryTickets)
 	if err != nil {
-		_ = clients.close()
+		_ = clients.close() // startup already failed; the init error is returned
 		return nil, err
 	}
 
+	cfg.Router.AuthRedirect.CookieAllowedOrigins = cfg.Router.CORSAllowedOrigins
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
-	router := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
-		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie, cfg.Router.AuthRedirect),
-		CoreHandler:                 handler.NewCoreHandler(useCases.core),
-		UserHandler:                 handler.NewUserManagementHandler(useCases.users),
+	router, err := gatewayhttp.NewRouter(cfg.Router, gatewayhttp.RouterDeps{
+		AuthHandler: handler.NewAuthHandler(clients.ssoClient, clients.coreClient, cfg.Cookie, cfg.Router.AuthRedirect),
+		CoreHandler: handler.NewCoreHandler(clients.coreClient),
+		UserHandler: handler.NewUserManagementHandler(handler.UserManagementDeps{
+			Users:        clients.ssoClient,
+			AdminUsers:   service.NewAdminUsers(clients.ssoClient, clients.coreClient),
+			Deactivation: service.NewUserDeactivation(clients.ssoClient, clients.coreClient),
+			Audit:        clients.coreClient,
+		}),
 		HealthHandler:               healthHandler,
-		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(useCases.telemetryTickets),
+		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(telemetryTickets),
 		CoreHTTPProxy:               proxies.coreHTTP,
 		TelemetryLogsProxy:          proxies.telemetryLogs,
 		TelemetryTerminalProxy:      proxies.telemetryTerminal,
 		AdminTelemetryLogsProxy:     proxies.adminTelemetryLogs,
 		AdminTelemetryTerminalProxy: proxies.adminTelemetryTerminal,
-		TokenVerifier:               useCases.auth,
+		TokenVerifier:               clients.ssoClient,
 		Logger:                      logger,
 	})
+	if err != nil {
+		_ = clients.close() // startup already failed; the init error is returned
+		return nil, fmt.Errorf("initialize gateway router: %w", err)
+	}
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,
@@ -148,15 +100,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 type gatewayClients struct {
 	ssoConn    *grpc.ClientConn
 	coreConn   *grpc.ClientConn
-	ssoClient  *grpcclient.SSOClient
-	coreClient *grpcclient.CoreClient
+	ssoClient  *client.SSOClient
+	coreClient *client.CoreClient
 }
 
-func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
-	grpcOpts, err := grpcDialOptions(cfg, logger)
-	if err != nil {
-		return gatewayClients{}, err
-	}
+func newGRPCClients(cfg config.Bootstrap, logger *slog.Logger) (gatewayClients, error) {
+	grpcOpts := grpcDialOptions(cfg, logger)
 
 	ssoConn, err := grpc.NewClient(cfg.SSOTarget, grpcOpts...)
 	if err != nil {
@@ -165,15 +114,15 @@ func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
 
 	coreConn, err := grpc.NewClient(cfg.CoreTarget, grpcOpts...)
 	if err != nil {
-		_ = ssoConn.Close()
+		_ = ssoConn.Close() // startup already failed; the client error is returned
 		return gatewayClients{}, fmt.Errorf("failed to create core grpc client: %w", err)
 	}
 
 	return gatewayClients{
 		ssoConn:    ssoConn,
 		coreConn:   coreConn,
-		ssoClient:  grpcclient.NewSSOClient(ssoConn),
-		coreClient: grpcclient.NewCoreClient(coreConn),
+		ssoClient:  client.NewSSOClient(ssoConn),
+		coreClient: client.NewCoreClient(coreConn),
 	}, nil
 }
 
@@ -188,22 +137,6 @@ func (c gatewayClients) close() error {
 	return err
 }
 
-type gatewayUseCases struct {
-	auth             *service.AuthService
-	users            *service.UserManagementService
-	core             *service.Core
-	telemetryTickets *service.TelemetryTicketStore
-}
-
-func newCoreUseCases(cfg Config, clients gatewayClients) gatewayUseCases {
-	return gatewayUseCases{
-		auth:             service.NewAuth(clients.ssoClient),
-		users:            service.NewUserManagement(clients.ssoClient),
-		core:             service.NewCore(clients.coreClient),
-		telemetryTickets: service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL),
-	}
-}
-
 type proxyHandlers struct {
 	coreHTTP               gin.HandlerFunc
 	telemetryLogs          gin.HandlerFunc
@@ -212,36 +145,37 @@ type proxyHandlers struct {
 	adminTelemetryTerminal gin.HandlerFunc
 }
 
-func newProxyHandlers(cfg Config, useCases gatewayUseCases) (proxyHandlers, error) {
+func newProxyHandlers(cfg config.Bootstrap, tickets *service.TelemetryTicketStore) (proxyHandlers, error) {
 	proxyTransport := newProxyTransport(cfg.Proxy)
 	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
-		TargetURL:     cfg.CoreHTTPTarget,
-		InternalToken: cfg.InternalToken,
-		Transport:     proxyTransport,
+		TargetURL:    cfg.CoreHTTPTarget,
+		ServiceToken: cfg.ServiceToken,
+		Transport:    proxyTransport,
 	})
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
-	telemetryProxyOpts := handler.ProxyOptions{
-		TargetURL:      cfg.TelemetryHTTPTarget,
-		InternalToken:  cfg.InternalToken,
+	// Core serves the log and terminal streams on the same internal listener.
+	streamProxyOpts := handler.ProxyOptions{
+		TargetURL:      cfg.CoreHTTPTarget,
+		ServiceToken:   cfg.ServiceToken,
 		Transport:      proxyTransport,
 		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
 	}
-	telemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, false)
+	telemetryLogsProxy, err := newTelemetryLogsProxy(streamProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
 	}
-	telemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, false)
+	telemetryTerminalProxy, err := newTelemetryTerminalProxy(streamProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
 	}
-	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, true)
+	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(streamProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
 	}
-	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, true)
+	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(streamProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
 	}
@@ -255,23 +189,23 @@ func newProxyHandlers(cfg Config, useCases gatewayUseCases) (proxyHandlers, erro
 	}, nil
 }
 
-func newTelemetryLogsProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+func newTelemetryLogsProxy(opts handler.ProxyOptions, tickets *service.TelemetryTicketStore, adminRoute bool) (gin.HandlerFunc, error) {
 	return handler.NewTelemetryLogsProxyHandler(opts, handler.TelemetryProxyAuthOptions{
-		Tickets:    useCases.telemetryTickets,
+		Tickets:    tickets,
 		StreamType: model.TelemetryStreamLogs,
 		AdminRoute: adminRoute,
 	})
 }
 
-func newTelemetryTerminalProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+func newTelemetryTerminalProxy(opts handler.ProxyOptions, tickets *service.TelemetryTicketStore, adminRoute bool) (gin.HandlerFunc, error) {
 	return handler.NewTelemetryTerminalProxyHandler(opts, handler.TelemetryProxyAuthOptions{
-		Tickets:    useCases.telemetryTickets,
+		Tickets:    tickets,
 		StreamType: model.TelemetryStreamTerminal,
 		AdminRoute: adminRoute,
 	})
 }
 
-func newReadiness(cfg Config, clients gatewayClients) *readinessChecker {
+func newReadiness(cfg config.Bootstrap, clients gatewayClients) *readinessChecker {
 	return &readinessChecker{
 		timeout: cfg.Readiness.Timeout,
 		grpcTargets: map[string]*grpc.ClientConn{
@@ -282,8 +216,7 @@ func newReadiness(cfg Config, clients gatewayClients) *readinessChecker {
 			Transport: newProxyTransport(cfg.Proxy),
 		},
 		httpTargets: map[string]string{
-			"core_http":      cfg.CoreHTTPTarget,
-			"telemetry_http": cfg.TelemetryHTTPTarget,
+			"core_http": cfg.CoreHTTPTarget,
 		},
 	}
 }
@@ -306,8 +239,7 @@ func (a *App) Run() error {
 
 	select {
 	case err := <-runErr:
-		_ = a.closeGRPC()
-		return err
+		return errors.Join(err, a.closeGRPC())
 	case <-ctx.Done():
 		a.logger.Info("gateway shutdown signal received")
 	}
@@ -342,17 +274,12 @@ func (a *App) closeGRPC() error {
 	return err
 }
 
-func grpcDialOptions(cfg Config, logger *slog.Logger) ([]grpc.DialOption, error) {
-	creds, err := grpcCredentials(cfg.GRPC.TLS)
-	if err != nil {
-		return nil, err
-	}
-
+func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) []grpc.DialOption {
 	timeoutInterceptor := unaryTimeoutInterceptor(cfg.GRPC.RequestTimeout)
 	interceptors := []grpc.UnaryClientInterceptor{
 		timeoutInterceptor,
 		logging.UnaryClientInterceptor(logger),
-		internalauth.UnaryClientInterceptor(cfg.InternalToken),
+		internalauth.UnaryClientInterceptor(cfg.ServiceToken),
 	}
 
 	minConnectTimeout := cfg.GRPC.MinConnectTimeout
@@ -361,7 +288,9 @@ func grpcDialOptions(cfg Config, logger *slog.Logger) ([]grpc.DialOption, error)
 	}
 
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
+		// Internal gRPC runs on the host's private Docker networks without TLS
+		// (ADR 0006); each call carries Gateway's own credential.
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff: backoff.Config{
 				BaseDelay:  1 * time.Second,
@@ -377,39 +306,7 @@ func grpcDialOptions(cfg Config, logger *slog.Logger) ([]grpc.DialOption, error)
 			PermitWithoutStream: true,
 		}),
 		grpc.WithChainUnaryInterceptor(interceptors...),
-	}, nil
-}
-
-func grpcCredentials(cfg GRPCTLSConfig) (credentials.TransportCredentials, error) {
-	if !cfg.Enabled {
-		return insecure.NewCredentials(), nil
 	}
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: cfg.ServerName,
-	}
-	if cfg.CAFile != "" {
-		caPEM, err := os.ReadFile(cfg.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read grpc tls ca file: %w", err)
-		}
-		rootCAs := x509.NewCertPool()
-		if ok := rootCAs.AppendCertsFromPEM(caPEM); !ok {
-			return nil, fmt.Errorf("failed to parse grpc tls ca file")
-		}
-		tlsConfig.RootCAs = rootCAs
-	}
-	if cfg.CertFile != "" || cfg.KeyFile != "" {
-		if cfg.CertFile == "" || cfg.KeyFile == "" {
-			return nil, fmt.Errorf("both grpc tls cert and key files are required for mtls")
-		}
-		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load grpc mtls client certificate: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{cert}
-	}
-	return credentials.NewTLS(tlsConfig), nil
 }
 
 func unaryTimeoutInterceptor(timeout time.Duration) grpc.UnaryClientInterceptor {
@@ -423,7 +320,7 @@ func unaryTimeoutInterceptor(timeout time.Duration) grpc.UnaryClientInterceptor 
 	}
 }
 
-func newProxyTransport(cfg ProxyConfig) *http.Transport {
+func newProxyTransport(cfg config.Proxy) *http.Transport {
 	dialTimeout := cfg.DialTimeout
 	if dialTimeout <= 0 {
 		dialTimeout = 10 * time.Second
@@ -523,7 +420,7 @@ func (r *readinessChecker) checkHTTP(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close() // status-only probe; close failure is not actionable
 	if resp.StatusCode >= http.StatusInternalServerError {
 		return fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}

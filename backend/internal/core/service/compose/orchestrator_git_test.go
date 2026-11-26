@@ -1,0 +1,146 @@
+package compose_test
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"io"
+	"log/slog"
+	"testing"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+func TestStartDeploymentAllowsImageOnlyComposeWhenImageBuildsDisabled(t *testing.T) {
+	repo := composemocks.NewProjectRepository(t)
+	o := newComposeOrchestratorForTest(t, repo)
+	var savedProject model.Project
+	var savedJob model.ComposeDeploymentJob
+
+	repo.EXPECT().
+		CreateWithComposeDeploymentJob(mock.Anything, mock.AnythingOfType("model.Project"), mock.AnythingOfType("model.ComposeDeploymentJob"), mock.AnythingOfType("model.ComposeDeploymentOutbox")).
+		Run(func(ctx context.Context, p model.Project, job model.ComposeDeploymentJob, outbox model.ComposeDeploymentOutbox) {
+			savedProject = p
+			savedJob = job
+		}).
+		Return(nil)
+
+	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
+	projectID, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithoutBuild)))
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, projectID)
+	require.Equal(t, projectID, savedProject.ID)
+	require.Equal(t, projectID, savedJob.ProjectID)
+	require.Equal(t, model.ComposeDeploymentStatusQueued, savedJob.Status)
+}
+
+func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T) {
+	repo := composemocks.NewProjectRepository(t)
+	o := newComposeOrchestratorForTest(t, repo)
+
+	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
+	_, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithBuild)))
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+}
+
+func newComposeOrchestratorForTest(t *testing.T, repo *composemocks.ProjectRepository) *compose.Orchestrator {
+	t.Helper()
+	deps, _ := composeOrchestratorDeps(t, repo, composeTestConfig())
+	o, err := compose.NewOrchestrator(deps)
+	require.NoError(t, err)
+	return o
+}
+
+// composeOrchestratorDeps admits every deployment by default and stores
+// uploaded sources in the returned map, which tracks object deletion.
+func composeOrchestratorDeps(t *testing.T, repo *composemocks.ProjectRepository, cfg config.SystemConfig) (compose.OrchestratorDeps, map[string][]byte) {
+	t.Helper()
+	objectStore := composemocks.NewObjectStorage(t)
+	objects := make(map[string][]byte)
+	objectStore.EXPECT().
+		UploadStream(mock.Anything, mock.AnythingOfType("string"), mock.Anything, int64(-1), "application/octet-stream").
+		Run(func(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) {
+			data, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			objects[objectKey] = data
+		}).
+		Return(nil).
+		Maybe()
+	objectStore.EXPECT().
+		NewReaderAt(mock.Anything, mock.AnythingOfType("string")).
+		RunAndReturn(func(ctx context.Context, objectKey string) (io.ReaderAt, int64, error) {
+			data, ok := objects[objectKey]
+			if !ok {
+				return nil, 0, apperrors.ErrNotFound
+			}
+			return bytes.NewReader(data), int64(len(data)), nil
+		}).
+		Maybe()
+	objectStore.EXPECT().
+		DeleteObject(mock.Anything, mock.AnythingOfType("string")).
+		Run(func(ctx context.Context, objectKey string) {
+			delete(objects, objectKey)
+		}).
+		Return(nil).
+		Maybe()
+	configProvider := coretest.StaticConfig{Config: cfg}
+	admission := composemocks.NewPlanAdmission(t)
+	admission.EXPECT().CheckDeploymentQueue(mock.Anything).Return(nil).Maybe()
+	admission.EXPECT().AdmitPlan(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
+			return commit(ctx)
+		}).Maybe()
+	return compose.OrchestratorDeps{
+		Projects:      repo,
+		PlanAdmission: admission,
+		Config:        configProvider,
+		ObjectStore:   objectStore,
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, objects
+}
+
+func composeTestConfig() config.SystemConfig {
+	return config.SystemConfig{
+		GitSourcesEnabled:             true,
+		GitAllowedHosts:               []string{"github.com"},
+		GitCloneTimeoutSeconds:        1,
+		GitMaxRepositoryBytes:         1024 * 1024,
+		ImageBuildsEnabled:            false,
+		ComposeUploadMaxBytes:         1024 * 1024,
+		ComposePipelineTimeoutMinutes: 1,
+	}
+}
+
+const gitComposeWithBuild = `
+services:
+  web:
+    build:
+      context: .
+`
+
+const gitComposeWithoutBuild = `
+services:
+  web:
+    image: nginx:latest
+`
+
+func zipComposeArchive(t *testing.T, composeYAML string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("docker-compose.yml")
+	require.NoError(t, err)
+	_, err = w.Write([]byte(composeYAML))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}

@@ -1,0 +1,22 @@
+import { Navigate } from 'react-router-dom';
+import { useAuthStore } from '@/shared/api/sessionStore';
+import { Loader2 } from 'lucide-react';
+import { PageLayout } from '@/app/layout/PageLayout';
+
+export function ProtectedRoute() {
+  const { accessToken, isInitialized } = useAuthStore();
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-label-3" />
+      </div>
+    );
+  }
+
+  if (!accessToken) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <PageLayout />;
+}

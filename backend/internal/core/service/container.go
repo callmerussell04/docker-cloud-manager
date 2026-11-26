@@ -7,48 +7,49 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
 )
 
 type ContainerRepository interface {
+	containerCreateRepository
+	containerStateRepository
+	containerCreateWorkerRepository
+	containerLifecycleQueueRepository
+	containerActiveOperationRepository
+	containerLockRepository
+	CountActiveCreateOperationsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CancelActiveCreateAndDeleteContainer(ctx context.Context, id uuid.UUID, cause error) error
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
-	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
-	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetRunning(ctx context.Context) ([]model.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
-	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
+	List(ctx context.Context, opts model.ContainerListOptions) (model.ContainerPage, error)
 }
 
 type containerCreateRepository interface {
-	SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error
 	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 }
 
 type containerStateRepository interface {
-	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
-	CreateOperation(ctx context.Context, op model.ResourceOperation) error
-	CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error
-	CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error
 }
 
 type containerLifecycleQueueRepository interface {
@@ -63,16 +64,14 @@ type containerLockRepository interface {
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
 
-type containerExposeRepository interface {
-	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
-}
-
 type ContainerVolumeRepository interface {
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
-	SaveMounts(ctx context.Context, mounts []model.VolumeMount) error
 }
 
 type ContainerDockerAPI interface {
+	containerVolumeInspector
 	EnsureUserNetwork(ctx context.Context, networkName string) (string, error)
 	RemoveNetwork(ctx context.Context, networkName string) error
 	PullImage(ctx context.Context, imageName string) error
@@ -83,25 +82,25 @@ type ContainerDockerAPI interface {
 	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
-	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
-}
-
-type containerImageRemover interface {
 	RemoveImage(ctx context.Context, imageID string, force bool) error
+	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
 
 type HostMetricsProvider interface {
 	GetTotalMemory() (int64, error)
-	GetFreeMemory() (int64, error)
 	GetLogicalCPUs() (int64, error)
 }
 
 type ContainerImageRepository interface {
-	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
+	containerImageDiskRepository
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
+	// FindByOwnerAndTag returns the owner's record for a normalized tag: the
+	// available one whenever it exists, else a building one, else any other.
+	FindByOwnerAndTag(ctx context.Context, ownerID uuid.UUID, tag string) (model.Image, bool, error)
 }
 
 type containerImageDiskRepository interface {
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type containerVolumeInspector interface {
@@ -116,49 +115,73 @@ type UserInfoProvider interface {
 	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
+// UserQuotaProvider reads an owner's effective quota from Core: their custom
+// quota, or else the runtime default. Quota readers never ask SSO.
+type UserQuotaProvider interface {
+	EffectiveUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, error)
+}
+
 type ProjectStatusUpdater interface {
 	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
 }
 
 type ContainerService struct {
-	repo         ContainerRepository
-	volumeRepo   ContainerVolumeRepository
-	imageRepo    ContainerImageRepository
-	dockerAPI    ContainerDockerAPI
-	metrics      HostMetricsProvider
-	config       ConfigManager
-	users        UserInfoProvider
-	projects     ProjectStatusUpdater
-	auditor      AuditRecorder
-	builds       activeSystemBuildCounter
-	hostDiskPath string
-	logger       *slog.Logger
-	rebalanceCh  chan struct{}
+	repo           ContainerRepository
+	volumeRepo     ContainerVolumeRepository
+	imageRepo      ContainerImageRepository
+	dockerAPI      ContainerDockerAPI
+	metrics        HostMetricsProvider
+	diskMetrics    HostDiskMetricsProvider
+	config         ConfigManager
+	quotas         UserQuotaProvider
+	projects       ProjectStatusUpdater
+	auditor        AuditRecorder
+	builds         activeSystemBuildCounter
+	dockerDataPath string
+	logger         *slog.Logger
 }
 
-func NewContainerService(
-	repo ContainerRepository,
-	volumeRepo ContainerVolumeRepository,
-	imageRepo ContainerImageRepository,
-	dockerAPI ContainerDockerAPI,
-	metrics HostMetricsProvider,
-	config ConfigManager,
-	users UserInfoProvider,
-	hostDiskPath string,
-	logger *slog.Logger,
-) *ContainerService {
-	return &ContainerService{
-		repo:         repo,
-		volumeRepo:   volumeRepo,
-		imageRepo:    imageRepo,
-		dockerAPI:    dockerAPI,
-		metrics:      metrics,
-		config:       config,
-		users:        users,
-		hostDiskPath: hostDiskPath,
-		logger:       logging.WithComponent(logger, "container_service"),
-		rebalanceCh:  make(chan struct{}, 1),
+// ContainerServiceDeps declares the capabilities needed by admission and lifecycle work.
+// Audit is best effort. Projects is wired separately to resolve the project/container cycle.
+type ContainerServiceDeps struct {
+	Repository  ContainerRepository
+	Volumes     ContainerVolumeRepository
+	Images      ContainerImageRepository
+	Docker      ContainerDockerAPI
+	Metrics     HostMetricsProvider
+	DiskMetrics HostDiskMetricsProvider
+	Config      ConfigManager
+	Quotas      UserQuotaProvider
+	Builds      activeSystemBuildCounter
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	Logger         *slog.Logger
+	Audit          AuditRecorder
+}
+
+func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"volumes", deps.Volumes},
+		{"images", deps.Images}, {"docker", deps.Docker},
+		{"metrics", deps.Metrics}, {"disk metrics", deps.DiskMetrics},
+		{"config", deps.Config}, {"quotas", deps.Quotas}, {"builds", deps.Builds},
 	}
+	for _, dependency := range required {
+		if nilcheck.IsNil(dependency.value) {
+			return nil, fmt.Errorf("container service: %s is required", dependency.name)
+		}
+	}
+	return &ContainerService{
+		repo: deps.Repository, volumeRepo: deps.Volumes, imageRepo: deps.Images,
+		dockerAPI: deps.Docker, metrics: deps.Metrics, diskMetrics: deps.DiskMetrics,
+		config: deps.Config, quotas: deps.Quotas, builds: deps.Builds,
+		dockerDataPath: deps.DockerDataPath, auditor: deps.Audit,
+		logger: logging.WithComponent(deps.Logger, "container_service"),
+	}, nil
 }
 
 func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater) {
@@ -167,10 +190,6 @@ func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater)
 
 func (s *ContainerService) SetAuditRecorder(auditor AuditRecorder) {
 	s.auditor = auditor
-}
-
-func (s *ContainerService) SetActiveBuildCounter(counter activeSystemBuildCounter) {
-	s.builds = counter
 }
 
 func (s *ContainerService) Create(ctx context.Context, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
@@ -190,9 +209,23 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if err := validation.DomainPrefix(params.DomainPrefix); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
+	mountPaths := make([]string, 0, len(params.VolumeMounts))
+	for _, vm := range params.VolumeMounts {
+		if err := validation.MountPath(vm.MountPath); err != nil {
+			return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+		}
+		mountPaths = append(mountPaths, vm.MountPath)
+	}
+	if validation.DuplicateMountPath(mountPaths) {
+		return uuid.Nil, fmt.Errorf("%w: mount path is used more than once", apperrors.ErrBadRequest)
+	}
 	cfg := s.config.Get()
 	if validation.ForbiddenDomainPrefix(params.DomainPrefix, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns) {
 		return uuid.Nil, s.domainPrefixForbiddenError(params.DomainPrefix)
+	}
+	reqMem, reqCPU, err := chosenReservation(params, cfg)
+	if err != nil {
+		return uuid.Nil, err
 	}
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
@@ -212,7 +245,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		return uuid.Nil, err
 	}
 	if count >= cfg.MaxContainersPerUser {
-		return uuid.Nil, apperrors.ErrLimitExceeded
+		return uuid.Nil, apperrors.Exceeded(apperrors.LimitContainersPerUser)
 	}
 
 	if params.DomainPrefix != "" {
@@ -229,63 +262,19 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		}
 
 	}
-	if queuedRepo, ok := s.repo.(interface {
-		CountActiveCreateOperationsByOwner(context.Context, uuid.UUID) (int, error)
-	}); ok && cfg.MaxQueuedContainerCreatesPerUser > 0 {
-		queued, err := queuedRepo.CountActiveCreateOperationsByOwner(ctx, ownerID)
-		if err != nil {
-			return uuid.Nil, err
-		}
-		if queued >= cfg.MaxQueuedContainerCreatesPerUser {
-			return uuid.Nil, apperrors.ErrLimitExceeded
-		}
-	}
-
-	// 1. Определение запрашиваемой памяти (Гарантии)
-	reqMem := params.RequestedMemoryMB * 1024 * 1024
-	if reqMem <= 0 {
-		reqMem = cfg.DefaultMemoryReservation
-	}
-	reqCPU := cfg.DefaultCPUReservation
-
-	// 2. Admission Control: Проверка квоты пользователя
-	if err := s.checkUserQuota(ctx, ownerID, reqMem); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkUserCPUQuota(ctx, ownerID, reqCPU); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
+	if err := checkQueuedLimit(ctx, ownerID, s.repo.CountActiveCreateOperationsByOwner, 1, cfg.MaxQueuedContainerCreatesPerUser, apperrors.LimitQueuedContainerCreates); err != nil {
 		return uuid.Nil, err
 	}
 
-	// 3. Admission Control: Проверка свободных ресурсов хоста (Защита сервера)
-	if err := s.checkHostCapacity(ctx, reqMem); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkHostCPUCapacity(ctx, reqCPU); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkHostDiskCapacity(); err != nil {
+	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: reqMem, cpuMillicores: reqCPU, chargesUser: true}); err != nil {
 		return uuid.Nil, err
 	}
 
 	baseName, version := parseImageTag(params.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
 
-	var customImage *model.Image
-	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
-	if err == nil {
-		for _, img := range userImages {
-			// Сравниваем с нормализованным тегом из БД
-			if img.Tag == normalizedInputTag {
-				customImage = &img
-				break
-			}
-		}
-	}
-	if customImage != nil && customImage.Status != model.ImageStatusAvailable {
-		return uuid.Nil, resourceUnavailableError("image")
+	if _, _, _, err := s.resolveContainerCreateImage(ctx, model.Container{OwnerID: ownerID, ImageTag: normalizedInputTag}); err != nil {
+		return uuid.Nil, err
 	}
 
 	envBytes, err := json.Marshal(params.EnvVars)
@@ -299,10 +288,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	var dbMounts []model.VolumeMount
 
 	for _, vm := range params.VolumeMounts {
-		if err := validation.MountPath(vm.MountPath); err != nil {
-			return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-		}
-
 		vol, err := s.volumeRepo.GetByID(ctx, vm.VolumeID)
 		if err != nil {
 			return uuid.Nil, err
@@ -312,6 +297,9 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		}
 		if vol.Status == model.VolumeStatusMissing {
 			return uuid.Nil, resourceUnavailableError("volume")
+		}
+		if vol.Status != model.VolumeStatusAvailable {
+			return uuid.Nil, apperrors.New(apperrors.ErrConflict, "volume is not available")
 		}
 		dbMounts = append(dbMounts, model.VolumeMount{
 			ContainerID: containerID,
@@ -355,7 +343,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		Operation:    model.OperationCreate,
 		Status:       model.OperationStatusPending,
 	}
-	msg := containerqueue.LifecycleMessage{
+	msg := queue.ContainerLifecycleMessage{
 		OperationID: op.ID.String(),
 		ContainerID: containerID.String(),
 		OwnerID:     ownerID.String(),
@@ -371,25 +359,13 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		ID:          uuid.New(),
 		OperationID: op.ID,
 		ContainerID: containerID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
+		Exchange:    queue.ContainerExchangeName,
+		RoutingKey:  queue.ContainerRoutingKey,
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}
-	if txRepo, ok := s.repo.(containerCreateRepository); ok {
-		if err := txRepo.SaveWithMountsOperationAndOutbox(ctx, c, dbMounts, op, outbox, false, false); err != nil {
-			return uuid.Nil, err
-		}
-	} else {
-		if err := s.repo.Save(ctx, c); err != nil {
-			return uuid.Nil, err
-		}
-		if len(dbMounts) > 0 {
-			if err := s.volumeRepo.SaveMounts(ctx, dbMounts); err != nil {
-				_ = s.repo.Delete(ctx, containerID)
-				return uuid.Nil, err
-			}
-		}
+	if err := s.repo.SaveWithMountsOperationAndOutbox(ctx, c, dbMounts, op, outbox, false, false); err != nil {
+		return uuid.Nil, err
 	}
 	releaseLock()
 	s.logger.InfoContext(ctx, "container create queued", "container_id", containerID, "owner_id", ownerID, "image_tag", normalizedInputTag)
@@ -407,12 +383,8 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	defer func() {
 		s.recordExposeAudit(ctx, c, domainPrefix, internalPort, err)
 	}()
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
+		return err
 	}
 
 	if domainPrefix == "" || internalPort <= 0 {
@@ -448,7 +420,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	if desiredStatus == "" || desiredStatus == model.ContainerStatusExposing {
 		desiredStatus = c.Status
 	}
-	return s.queueContainerOperation(ctx, c, model.OperationExpose, model.ContainerStatusExposing, desiredStatus, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationExpose, model.ContainerStatusExposing, desiredStatus, queue.ContainerLifecycleMessage{
 		DomainPrefix:   domainPrefix,
 		InternalPort:   internalPort,
 		PreviousStatus: c.Status,
@@ -465,7 +437,7 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 		outcome = auditlog.OutcomeFailure
 		errorCode = apperrors.SafeMessage(opErr)
 	}
-	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	actorID, actorUsername, actorScope := auditlog.ActorFromContext(ctx)
 	ownerUsername := c.OwnerUsername
 	if ownerUsername == "" && c.OwnerID == actorIDValue(actorID) {
 		ownerUsername = actorUsername
@@ -483,7 +455,8 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 	if c.ProjectID != nil {
 		details[auditlog.DetailProjectID] = c.ProjectID.String()
 	}
-	_ = s.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+	// Audit is best effort: a failed write is logged and never fails the expose.
+	err := s.auditor.RecordAuditEvent(ctx, model.AuditEvent{
 		ActorUserID:   actorID,
 		ActorUsername: actorUsername,
 		ActorScope:    actorScope,
@@ -492,12 +465,15 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 		ResourceType:  auditlog.ResourceContainer,
 		ResourceID:    c.ID.String(),
 		ResourceName:  c.Name,
-		OwnerID:       ownerPtr(c.OwnerID),
+		OwnerID:       auditlog.OptionalID(c.OwnerID),
 		OwnerUsername: ownerUsername,
-		RequestID:     requestIDFromContext(ctx),
+		RequestID:     logging.RequestIDFromContext(ctx),
 		ErrorCode:     errorCode,
 		DetailsJSON:   auditlog.SafeDetailsJSON(details),
 	})
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to record audit event", "container_id", c.ID, "action", auditlog.ActionContainerExpose, "error", err)
+	}
 }
 
 func (s *ContainerService) fullDomain(domainPrefix string) string {
@@ -526,6 +502,10 @@ func actorIDValue(actorID *uuid.UUID) uuid.UUID {
 	return *actorID
 }
 
+// Start queues a start of the container. It decides under the owner capacity
+// lock, from the record read again under it: a running container is left as
+// it is, one that already reserves its memory and CPU asks for none, and any
+// other is admitted with its reservation.
 func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
@@ -534,51 +514,74 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
-	}
-	ownerID := c.OwnerID
 
-	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
+	unlock, err := s.acquireOwnerCapacityLock(ctx, c.OwnerID)
 	if err != nil {
 		return err
 	}
-	releaseLock := func() {
-		if unlock != nil {
-			unlock()
-			unlock = nil
-		}
+	if unlock != nil {
+		defer unlock()
 	}
-	defer releaseLock()
-	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
-	cfg := s.config.Get()
-	requestedMemory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
-	requestedCPU := normalizeCPUReservation(c.BaseCPUReservation, cfg)
-	if err := s.checkUserQuota(ctx, ownerID, requestedMemory); err != nil {
+	if c, err = s.repo.GetByID(ctx, containerID); err != nil {
 		return err
 	}
-	if err := s.checkUserCPUQuota(ctx, ownerID, requestedCPU); err != nil {
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
 		return err
 	}
-	if err := s.checkHostCapacity(ctx, requestedMemory); err != nil {
+	if c.Status == model.ContainerStatusRunning {
+		return nil
+	}
+	if err := s.admit(ctx, c.OwnerID, s.startAdmissionRequest(c)); err != nil {
 		return err
 	}
-	if err := s.checkHostCPUCapacity(ctx, requestedCPU); err != nil {
-		return err
-	}
-	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
-		return err
-	}
-	if err := s.checkHostDiskCapacity(); err != nil {
-		return err
-	}
-	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
+}
+
+// startAdmissionRequest is what starting c asks admission for. A container
+// that reserves capacity by the reservation rule is already in the ledger, so
+// its start asks for no memory or CPU and meets only the disk limits.
+func (s *ContainerService) startAdmissionRequest(c model.Container) admissionRequest {
+	if c.ReservesCapacity() {
+		return admissionRequest{reservationHeld: true}
+	}
+	cfg := s.config.Get()
+	return admissionRequest{
+		memoryBytes:   cfg.MemoryReservationOrDefault(c.BaseMemoryReservation),
+		cpuMillicores: cfg.CPUReservationOrDefault(c.BaseCPUReservation),
+		chargesUser:   true,
+	}
+}
+
+// requireDockerRuntime refuses a request that needs the container's Docker
+// runtime when it has none. A missing container can only be deleted. One
+// without a recorded Docker container is still being created while it is
+// pending or creating or has an active operation: that is a conflict that
+// writes nothing. Otherwise its runtime is lost, and it is marked missing.
+func (s *ContainerService) requireDockerRuntime(ctx context.Context, c model.Container) error {
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID != "" {
+		return nil
+	}
+	if c.Status == model.ContainerStatusPending || c.Status == model.ContainerStatusCreating {
+		return containerStillBeingCreatedError()
+	}
+	active, err := s.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return containerStillBeingCreatedError()
+	}
+	s.markContainerError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
+	return resourceUnavailableError("container")
+}
+
+func containerStillBeingCreatedError() error {
+	return apperrors.New(apperrors.ErrConflict, "container is still being created")
 }
 
 func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) error {
@@ -589,14 +592,10 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
+		return err
 	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
-	}
-	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
 }
@@ -611,29 +610,24 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 	}
 	ownerID := c.OwnerID
 	if c.DockerID == "" && (c.Status == model.ContainerStatusPending || c.Status == model.ContainerStatusCreating) {
-		if cancelRepo, ok := s.repo.(interface {
-			CancelActiveCreateAndDeleteContainer(context.Context, uuid.UUID, error) error
-		}); ok {
-			cause := apperrors.New(apperrors.ErrConflict, "container create canceled by delete")
-			if err := cancelRepo.CancelActiveCreateAndDeleteContainer(ctx, containerID, cause); err != nil {
-				return err
-			}
-			s.cleanupUserNetworkIfUnused(ctx, ownerID)
-			s.refreshProjectStatus(ctx, c.ProjectID)
-			s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
-			return nil
-		}
-	}
-	if activeRepo, ok := s.repo.(containerActiveOperationRepository); ok {
-		active, err := activeRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
-		if err != nil {
+		cause := apperrors.New(apperrors.ErrConflict, "container create canceled by delete")
+		if err := s.repo.CancelActiveCreateAndDeleteContainer(ctx, containerID, cause); err != nil {
 			return err
 		}
-		if active {
-			return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
-		}
+		s.cleanupUserNetworkIfUnused(ctx, ownerID)
+		s.refreshProjectStatus(ctx, c.ProjectID)
+		s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
+		return nil
 	}
-	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, containerqueue.LifecycleMessage{
+	active, err := s.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
+	}
+
+	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
 }
@@ -661,26 +655,37 @@ func (s *ContainerService) CleanupUserNetworkIfUnused(ctx context.Context, owner
 }
 
 func (s *ContainerService) cleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) {
-	_ = s.CleanupUserNetworkIfUnused(ctx, ownerID)
+	_ = s.CleanupUserNetworkIfUnused(ctx, ownerID) // best-effort cleanup; CleanupUserNetworkIfUnused logs its own failures
 }
 
 func userNetworkName(ownerID uuid.UUID) string {
 	return fmt.Sprintf("net_user_%s", ownerID.String())
 }
 
-func (s *ContainerService) List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error) {
+// List reads one page of the containers list in the request's scope: a
+// user's own containers, or every container for an admin. It refuses an
+// unknown status filter, sort key or order and an overlong search as a bad
+// request.
+func (s *ContainerService) List(ctx context.Context, query model.ContainerListQuery) (model.ContainerPage, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
-		return nil, 0, err
+		return model.ContainerPage{}, err
 	}
 	if scope.Kind != accessscope.KindUser && scope.Kind != accessscope.KindAdmin {
-		return nil, 0, apperrors.ErrForbidden
+		return model.ContainerPage{}, apperrors.ErrForbidden
 	}
-	return s.repo.List(ctx, model.ListOptions{
-		OwnerID:   scope.OwnerFilter(),
-		ProjectID: projectID,
-		Limit:     limit,
-		Offset:    offset,
+	filter, err := query.Normalize()
+	if err != nil {
+		return model.ContainerPage{}, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	return s.repo.List(ctx, model.ContainerListOptions{
+		ListOptions: model.ListOptions{
+			OwnerID:   scope.OwnerFilter(),
+			ProjectID: query.ProjectID,
+			Limit:     query.Limit,
+			Offset:    query.Offset,
+		},
+		ContainerListFilter: filter,
 	})
 }
 

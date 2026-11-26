@@ -1,11 +1,11 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) DeleteImage(ctx context.Context, imageID string) error {
@@ -37,12 +37,13 @@ func imagesFromProto(items []*coreapi.ImageData) []model.Image {
 		result = append(result, model.Image{
 			ID:            item.GetId(),
 			Tag:           item.GetTag(),
-			SizeMB:        item.GetSizeMb(),
+			SizeBytes:     item.GetSizeBytes(),
 			Status:        item.GetStatus(),
 			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),
+			UsedBy:        containerRefsFromProto(item.GetUsedBy()),
 		})
 	}
 	return result

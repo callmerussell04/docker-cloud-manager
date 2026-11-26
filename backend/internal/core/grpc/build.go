@@ -7,9 +7,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type BuildLogic interface {
@@ -18,6 +18,7 @@ type BuildLogic interface {
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	List(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 	GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error)
+	GetBuildStatus(ctx context.Context, buildID uuid.UUID) (string, error)
 	DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -36,9 +37,12 @@ func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildA
 	}
 
 	return &coreapi.StartBuildRecordResponse{
-		Started: started,
-		Status:  build.Status,
-		ImageId: build.ImageID.String(),
+		Started:             started,
+		RegistryUsername:    build.RegistryCredential.Username,
+		RegistryPassword:    build.RegistryCredential.Password,
+		RegistryDestination: build.RegistryCredential.Destination,
+		Status:              build.Status,
+		ImageId:             buildImageID(build),
 	}, nil
 }
 
@@ -88,11 +92,11 @@ func (h *ImageHandler) GetBuildStatus(ctx context.Context, req *coreapi.BuildAct
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
 	}
 
-	build, err := h.buildLogic.GetBuild(ctx, buildID)
+	buildStatus, err := h.buildLogic.GetBuildStatus(ctx, buildID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &coreapi.BuildStatusResponse{Status: build.Status}, nil
+	return &coreapi.BuildStatusResponse{Status: buildStatus}, nil
 }
 
 func (h *ImageHandler) GetBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildData, error) {
@@ -165,7 +169,10 @@ func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []model
 }
 
 func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
-	var finishedAt int64
+	var startedAt, finishedAt int64
+	if !b.StartedAt.IsZero() {
+		startedAt = b.StartedAt.Unix()
+	}
 	if b.FinishedAt != nil {
 		finishedAt = b.FinishedAt.Unix()
 	}
@@ -175,14 +182,28 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 	}
 	return &coreapi.BuildData{
 		Id:                 b.ID.String(),
-		ImageId:            b.ImageID.String(),
+		ImageId:            buildImageID(b),
+		Tag:                b.Tag,
 		Status:             b.Status,
-		StartedAt:          b.StartedAt.Unix(),
+		CreatedAt:          b.CreatedAt.Unix(),
+		StartedAt:          startedAt,
 		FinishedAt:         finishedAt,
-		LogFilePath:        b.LogFilePath,
+		LogObjectKey:       b.LogObjectKey,
 		OwnerId:            b.OwnerID.String(),
 		OwnerUsername:      ownerUsername,
 		ProjectId:          projectID,
 		ProjectServiceName: b.ProjectServiceName,
+		SourceKind:         string(b.Source.Kind),
+		SourceLocation:     b.Source.Location,
+		SourceRef:          b.Source.Ref,
 	}
+}
+
+// buildImageID is a build's image ID on the wire: empty once the build's image
+// record has been deleted.
+func buildImageID(b model.Build) string {
+	if b.ImageID == uuid.Nil {
+		return ""
+	}
+	return b.ImageID.String()
 }

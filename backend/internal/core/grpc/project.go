@@ -3,9 +3,9 @@ package grpc
 import (
 	"context"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -14,6 +14,7 @@ import (
 
 type ProjectLogic interface {
 	List(ctx context.Context, limit, offset int) ([]model.Project, int, error)
+	Get(ctx context.Context, projectID uuid.UUID) (model.Project, error)
 	Delete(ctx context.Context, projectID uuid.UUID) error
 	Start(ctx context.Context, projectID uuid.UUID) error
 	Stop(ctx context.Context, projectID uuid.UUID) error
@@ -111,26 +112,48 @@ func (h *ProjectHandler) ListProjects(ctx context.Context, req *coreapi.Paginati
 	var pbProjects []*coreapi.ProjectData
 	usernames := h.usernamesByOwner(ctx, projects)
 	for _, p := range projects {
-		errMsg := ""
-		if p.ErrorMessage != nil {
-			errMsg = *p.ErrorMessage
-		}
-		pbProjects = append(pbProjects, &coreapi.ProjectData{
-			Id:            p.ID.String(),
-			Name:          p.Name,
-			Status:        p.Status,
-			ErrorMessage:  errMsg,
-			CreatedAt:     p.CreatedAt.Unix(),
-			OwnerId:       p.OwnerID.String(),
-			OwnerUsername: usernames[p.OwnerID],
-			LastError:     errMsg,
-		})
+		pbProjects = append(pbProjects, projectToProto(p, usernames[p.OwnerID]))
 	}
 
 	return &coreapi.PaginatedProjectResponse{
 		Projects:   pbProjects,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ProjectHandler) GetProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.ProjectData, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+	}
+
+	p, err := h.logic.Get(ctx, projectID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	usernames := h.usernamesByOwner(ctx, []model.Project{p})
+	return projectToProto(p, usernames[p.OwnerID]), nil
+}
+
+func projectToProto(p model.Project, ownerUsername string) *coreapi.ProjectData {
+	errMsg := ""
+	if p.ErrorMessage != nil {
+		errMsg = *p.ErrorMessage
+	}
+	return &coreapi.ProjectData{
+		Id:            p.ID.String(),
+		Name:          p.Name,
+		Status:        p.Status,
+		ErrorMessage:  errMsg,
+		CreatedAt:     p.CreatedAt.Unix(),
+		OwnerId:       p.OwnerID.String(),
+		OwnerUsername: ownerUsername,
+		LastError:     errMsg,
+	}
 }
 
 func (h *ProjectHandler) usernamesByOwner(ctx context.Context, projects []model.Project) map[uuid.UUID]string {

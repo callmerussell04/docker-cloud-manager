@@ -18,4 +18,7 @@ type BuilderConfig struct {
 	MaxUnpackedSizeBytes      int64
 	MaxBuildLogSizeBytes      int64
 	BuildCancelPollInterval   time.Duration
+	// BuildMaxDiskBytes is the disk one build may write, from Core's
+	// runtime config.
+	BuildMaxDiskBytes int64
 }

@@ -7,8 +7,6 @@ type ContainerConfig struct {
 	OvercommitFactor         float64
 	MaxBurstMultiplier       int64
 	DefaultCPUShares         int64
-	HighLoadCPUShares        int64
-	HighLoadContainerCount   int
 	ContainerStopTimeout     int
 	MaxLogSize               string
 	MaxLogFiles              string

@@ -1,9 +1,9 @@
-package grpcclient
+package client
 
 import (
 	"google.golang.org/grpc"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
 )
 
 type CoreClient struct {
@@ -14,6 +14,8 @@ type CoreClient struct {
 	systemAPI    coreapi.SystemAPIClient
 	statsAPI     coreapi.StatsAPIClient
 	reportAPI    coreapi.ReportAPIClient
+	quotaAPI     coreapi.QuotaAPIClient
+	workloadAPI  coreapi.WorkloadAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -25,5 +27,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		systemAPI:    coreapi.NewSystemAPIClient(cc),
 		statsAPI:     coreapi.NewStatsAPIClient(cc),
 		reportAPI:    coreapi.NewReportAPIClient(cc),
+		quotaAPI:     coreapi.NewQuotaAPIClient(cc),
+		workloadAPI:  coreapi.NewWorkloadAPIClient(cc),
 	}
 }

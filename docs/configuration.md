@@ -3,7 +3,9 @@
 DCM использует два уровня настроек:
 
 1. **Начальные переменные окружения** — секреты, строки подключения к базам данных, адреса служб, порты, пути и настройки браузера или OIDC. После изменения требуется перезапуск, а после изменения аргументов сборки клиентской части — повторная сборка.
-2. **Настройки, изменяемые во время работы** — рабочие ограничения Core. Хранятся в `core_config_data`, изменяются администратором и применяются без общего перезапуска.
+2. **Настройки, изменяемые во время работы** — 49 решений администратора платформы: квоты и лимиты пользователей, резервы и лимиты памяти и CPU, диск, сборки, Git, Compose, домены и терминал. Хранятся в файле на томе `core_config_data`, изменяются на странице «Настройки системы» и применяются без перезапуска.
+
+Внутренняя настройка Core (интервалы фоновых обработчиков, размеры пакетов очередей, число попыток, периоды cgroup и подобное) к рабочим настройкам не относится: это [значения запуска Core](#значения-запуска-core), которые задаются переменными окружения и меняются перезапуском.
 
 Публичный шаблон начальных переменных: [`backend/.env.example`](../backend/.env.example).
 
@@ -11,26 +13,44 @@ DCM использует два уровня настроек:
 
 | Пометка | Значение |
 | --- | --- |
-| Secret | Значение нельзя логировать или публиковать |
-| Restart | Перезапустите соответствующие services |
-| Rebuild | Пересоберите frontend/container image |
-| Runtime | Меняется через System settings или `/api/v1/admin/config` |
+| Секрет | Значение нельзя записывать в журналы или публиковать |
+| Перезапуск | Перезапустите названные службы |
+| Пересборка | Пересоберите образ клиентской части или службы |
+| Рабочая настройка | Меняется на странице «Настройки системы» или через `/api/v1/admin/config` |
 
-## Bootstrap env
+## Начальные переменные окружения
 
-### PostgreSQL и bootstrap admin
+### PostgreSQL и начальный администратор
 
 | Переменная | Значение в шаблоне | Назначение | Применение |
 | --- | --- | --- | --- |
-| `POSTGRES_USER` | `postgres` | Пользователь PostgreSQL | Restart |
-| `POSTGRES_PASSWORD` | `change_me_*` | Общий пароль PostgreSQL | Secret; менять только до инициализации либо по плану смены пароля |
-| `CORE_POSTGRES_DB` | `dcm_core_db` | База Core | Restart |
-| `SSO_POSTGRES_DB` | `dcm_sso_db` | База SSO | Restart |
-| `JWT_SECRET` | `change_me_*` | Подпись токенов DCM tokens | Secret |
-| `INTERNAL_SERVICE_TOKEN` | `change_me_*` | Доверие между службами DCM services | Secret, restart всех серверных служб |
-| `SSO_ADMIN_USERNAME` | `admin` | Bootstrap admin login | SSO restart; применяется при начальной настройке |
-| `SSO_ADMIN_EMAIL` | `admin@example.local` | Bootstrap admin email | SSO restart |
-| `SSO_ADMIN_PASSWORD` | `change_me_*` | Bootstrap admin password | Secret, SSO restart |
+| `POSTGRES_USER` | `postgres` | Пользователь PostgreSQL | Перезапуск |
+| `POSTGRES_PASSWORD` | `change_me_*` | Общий пароль PostgreSQL | Секрет. Пароль задаётся базе только при первой инициализации тома: позже изменение переменной не меняет пароль внутри базы |
+| `CORE_POSTGRES_DB` | `dcm_core_db` | База Core | Перезапуск |
+| `SSO_POSTGRES_DB` | `dcm_sso_db` | База SSO | Перезапуск |
+| `JWT_SECRET` | `change_me_*` | Подпись токенов доступа DCM | Секрет, перезапуск SSO |
+| `GATEWAY_SERVICE_TOKEN` | `change_me_*` | Учётные данные Gateway при вызовах SSO и Core | Секрет, перезапуск Gateway, SSO и Core |
+| `CORE_SERVICE_TOKEN` | `change_me_*` | Учётные данные Core при вызовах SSO | Секрет, перезапуск Core и SSO |
+| `BUILDER_SERVICE_TOKEN` | `change_me_*` | Учётные данные Builder при вызовах Core | Секрет, перезапуск Builder и Core |
+| `SSO_ADMIN_USERNAME` | `admin` | Имя начального администратора | Перезапуск SSO; применяется при начальной настройке |
+| `SSO_ADMIN_EMAIL` | `admin@example.local` | Адрес начального администратора | Перезапуск SSO |
+| `SSO_ADMIN_PASSWORD` | `change_me_*` | Пароль начального администратора | Секрет, перезапуск SSO |
+
+Три учётных данных служб должны различаться: служба не запускается, если её значение не задано, пусто или совпадает со значением другой службы, и сообщение называет переменную, но не значение. Какие вызовы разрешены каждой службе, описано в [модели безопасности](security-model.md#учётные-данные-служб).
+
+### Пулы соединений PostgreSQL
+
+Настройки задаются отдельно для Core и SSO и требуют перезапуска службы:
+
+| Переменные | По умолчанию | Назначение |
+| --- | --- | --- |
+| `CORE_DB_MAX_OPEN`, `SSO_DB_MAX_OPEN` | `20` | Общий предел открытых соединений службы |
+| `CORE_DB_MAX_LIFETIME`, `SSO_DB_MAX_LIFETIME` | `30m` | Максимальное время жизни соединения |
+| `CORE_DB_MAX_IDLE_TIME`, `SSO_DB_MAX_IDLE_TIME` | `5m` | Максимальное время простоя соединения |
+
+Core делит `CORE_DB_MAX_OPEN` на два пула: `locks` для транзакций, удерживающих блокировки допуска и реестра, и `queries` для остальных запросов, поэтому удержание блокировки не забирает соединения у обычных запросов. Минимальный общий бюджет Core — `2`, SSO — `1`. Простаивающие соединения закрываются по истечении `MAX_IDLE_TIME`. Длительности задаются в формате Go (`30m`, `1h`); нулевые, отрицательные и некорректные значения запрещены, неограниченные пулы не поддерживаются. При выборе бюджета учитывайте `max_connections` PostgreSQL: сумму лимитов всех служб и отдельные подключения миграций, Keycloak и администраторов.
+
+Core и SSO пишут `postgres pool statistics` при запуске и каждые 30 секунд в структурированный журнал. Поля `pool`, `max_open`, `open`, `in_use`, `idle`, `wait_count`, `wait_duration_ms`, `max_idle_closed`, `max_idle_time_closed`, `max_lifetime_closed` показывают заполнение пула, накопленное ожидание и закрытие соединений. Core сообщает отдельно `queries` и `locks`; для общего числа соединений сложите их значения. DSN и учётные данные в статистику не входят.
 
 ### Локальная аутентификация и OIDC
 
@@ -39,25 +59,26 @@ DCM использует два уровня настроек:
 | `SSO_LOCAL_LOGIN_ENABLED` | `true` | Показывать и принимать локальный вход |
 | `SSO_LOCAL_REGISTER_ENABLED` | `true` | Разрешить самостоятельную регистрацию |
 | `SSO_OIDC_ENABLED` | `false` | Включить поток входа через Keycloak |
-| `SSO_OIDC_ISSUER_URL` | Область Keycloak на localhost | URL издателя и метаданных OIDC |
-| `SSO_OIDC_CLIENT_ID` | `dcm` | Идентификатор клиента OIDC |
-| `SSO_OIDC_CLIENT_SECRET` | `change_me_*` | Секрет конфиденциального клиента |
-| `SSO_OIDC_REDIRECT_URL` | Обратный вызов на localhost | Точный URL обратного вызова Gateway |
-| `SSO_OIDC_ADMIN_GROUPS` | `/dcm-admins,dcm-admin` | Группы или роли, назначающие администратора |
-| `SSO_OIDC_DEFAULT_ROLE` | `user` | Роль нового пользователя OIDC без сопоставления с администратором |
+| `SSO_OIDC_ISSUER_URL` | Область Keycloak на localhost | URL издателя и метаданных OIDC; обязателен при включённом OIDC, абсолютный `http`/`https` |
+| `SSO_OIDC_CLIENT_ID` | `dcm` | Идентификатор клиента OIDC; обязателен при включённом OIDC |
+| `SSO_OIDC_CLIENT_SECRET` | `change_me_*` | Секрет конфиденциального клиента; обязателен при включённом OIDC |
+| `SSO_OIDC_REDIRECT_URL` | Обратный вызов на localhost | Точный URL обратного вызова Gateway; обязателен при включённом OIDC, абсолютный `http`/`https` |
+| `SSO_OIDC_ADMIN_GROUPS` | `/dcm-admins,dcm-admin` | Группы или роли области, назначающие администратора. Непустой список передаёт роль пользователей OIDC под управление Keycloak; пустой оставляет её DCM (см. [«Кто управляет ролью»](authentication.md#кто-управляет-ролью)) |
 
 Все изменения требуют перезапуска SSO; изменения браузерной маршрутизации также требуют перезапуска Gateway.
 
-### Optional development Keycloak
+SSO не запускается, если `SSO_LOCAL_LOGIN_ENABLED` и `SSO_OIDC_ENABLED` оба равны `false`, и называет обе переменные. Недоступный при старте Keycloak запуск не останавливает: SSO подключается к нему в фоне (см. [Аутентификация](authentication.md#недоступный-keycloak)). Восстановление доступа через начального администратора требует `SSO_LOCAL_LOGIN_ENABLED=true`.
+
+### Keycloak для разработки (необязательно)
 
 | Переменная | Значение по умолчанию | Назначение |
 | --- | --- | --- |
-| `KEYCLOAK_POSTGRES_USER` | `keycloak` | Пользователь Keycloak DB |
-| `KEYCLOAK_POSTGRES_PASSWORD` | `change_me_*` | Secret Keycloak DB |
-| `KEYCLOAK_POSTGRES_DB` | `keycloak` | Имя Keycloak DB |
-| `KEYCLOAK_ADMIN_USERNAME` | `admin` | Keycloak admin console login |
-| `KEYCLOAK_ADMIN_PASSWORD` | `change_me_*` | Secret Keycloak admin |
-| `KEYCLOAK_HOSTNAME` | `http://keycloak.localhost` | Canonical Keycloak URL |
+| `KEYCLOAK_POSTGRES_USER` | `keycloak` | Пользователь базы Keycloak |
+| `KEYCLOAK_POSTGRES_PASSWORD` | `change_me_*` | Пароль базы Keycloak |
+| `KEYCLOAK_POSTGRES_DB` | `keycloak` | Имя базы Keycloak |
+| `KEYCLOAK_ADMIN_USERNAME` | `admin` | Имя администратора консоли Keycloak |
+| `KEYCLOAK_ADMIN_PASSWORD` | `change_me_*` | Пароль администратора консоли Keycloak |
+| `KEYCLOAK_HOSTNAME` | `http://keycloak.localhost` | Канонический адрес Keycloak |
 
 Эти значения используются только с `backend/docker-compose.keycloak.yml`.
 
@@ -74,14 +95,14 @@ DCM использует два уровня настроек:
 | `OBJECT_STORAGE_ACCESS_KEY` | `dcm_minio` | Ключ доступа S3 |
 | `OBJECT_STORAGE_SECRET_KEY` | `change_me_*` | Секретный ключ S3 |
 | `OBJECT_STORAGE_USE_SSL` | `false` | TLS между Core, Builder и объектным хранилищем |
-| `REGISTRY_API_URL` | `registry:5000` | Адрес API реестра образов для Core |
+| `REGISTRY_API_URL` | `https://registry-backend:5000` | Адрес API реестра образов для Core |
 | `REGISTRY_URL` | `registry:5000` | Адрес реестра образов для Builder |
-| `REGISTRY_PUBLIC_URL` | `localhost:5000` | Адрес реестра, с которого сервер Docker загружает образы |
+| `REGISTRY_PUBLIC_URL` | `registry:5000` | Адрес реестра, с которого сервер Docker загружает образы |
 | `CLICKHOUSE_DB` | `dcm_reports` | База данных отчётов |
 | `CLICKHOUSE_USER` | `dcm_reports` | Пользователь базы данных отчётов |
 | `CLICKHOUSE_PASSWORD` | `change_me_*` | Секрет базы данных отчётов |
 
-### Domains, frontend и Traefik
+### Домены, клиентская часть и Traefik
 
 | Переменная | Значение по умолчанию | Назначение | Применение |
 | --- | --- | --- | --- |
@@ -89,6 +110,12 @@ DCM использует два уровня настроек:
 | `BASE_DOMAIN` | `localhost` | Суффикс доменов опубликованных приложений | Перезапуск Core и пересборка клиентской части |
 | `FRONTEND_API_URL` | `http://localhost/api/v1` | URL API, встроенный в одностраничное приложение | Пересборка клиентской части |
 | `TRAEFIK_DASHBOARD_ENABLED` | `false` | Локальная панель на `127.0.0.1:8080` | Перезапуск Traefik |
+| `GATEWAY_INGRESS_SUBNET` | `172.30.251.0/24` | Отдельная внутренняя сеть Traefik–Gateway | Повторное создание сети и контейнеров |
+| `TRAEFIK_GATEWAY_IP` | `172.30.251.2` | Адрес Traefik и доверенный прокси Gateway в Compose | Повторное создание Traefik и Gateway |
+| `PROXY_BRIDGE_NAME` | `br-dcm-proxy` | Имя bridge-устройства `proxy_net`, на котором `build-network-policy` изолирует опубликованные контейнеры | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `PROXY_NETWORK_SUBNET` | `172.30.240.0/21` | Подсеть `proxy_net` | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `PROXY_NETWORK_IP_RANGE` | `172.30.244.0/22` | Диапазон внутри подсети, из которого Docker выдаёт адреса опубликованным контейнерам | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `TRAEFIK_PROXY_IP` | `172.30.240.2` | Постоянный адрес Traefik в `proxy_net` вне `PROXY_NETWORK_IP_RANGE`; трафик внутри `proxy_net` разрешён только к нему и от него | Повторное создание Traefik и `build-network-policy` |
 | `TRAEFIK_LOG_LEVEL` | `INFO` | Уровень журналирования Traefik | Перезапуск Traefik |
 | `COMPOSE_LOG_MAX_SIZE` | `10m` | Размер файла журнала Docker до ротации | Повторное создание контейнеров |
 | `COMPOSE_LOG_MAX_FILE` | `3` | Количество файлов журнала | Повторное создание контейнеров |
@@ -97,6 +124,10 @@ DCM использует два уровня настроек:
 
 ### Gateway и файлы cookie
 
+Gateway доверяет `X-Forwarded-For` только от Traefik на отдельной внутренней сети `dcm_gateway_ingress`. Compose использует `TRAEFIK_GATEWAY_IP` (по умолчанию `172.30.251.2`) и для статического адреса Traefik, и для `GATEWAY_TRUSTED_PROXIES`. При конфликте подсетей измените `GATEWAY_INGRESS_SUBNET` и выберите свободный адрес Traefik внутри неё. Не подключайте пользовательские контейнеры к этой сети. Traefik не доверяет входящим forwarded-заголовкам внешних клиентов.
+
+При запуске Gateway вне Compose задайте `GATEWAY_TRUSTED_PROXIES` списком IP/CIDR реальных прокси через запятую; пустой список отключает доверие. Некорректные адреса, неопределённые адреса, multicast и сети, содержащие неопределённый адрес (включая `/0`), отклоняются при запуске без вывода значения настройки. Не доверяйте всей сети пользовательских контейнеров или внешних клиентов. Лимиты аутентификации и загрузок, а также аудит используют один и тот же проверенный адрес клиента.
+
 | Группа | Переменные | Назначение |
 | --- | --- | --- |
 | Источники | `CORS_ALLOWED_ORIGINS`, `GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS`, `GATEWAY_AUTH_CALLBACK_PATH` | Разрешённые источники браузерных страниц и обратный вызов одностраничного приложения |
@@ -104,89 +135,217 @@ DCM использует два уровня настроек:
 | Ограничения тела и частоты запросов | `GATEWAY_MAX_JSON_BODY_BYTES`, `GATEWAY_AUTH_RATE_LIMIT_REQUESTS`, `GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `GATEWAY_UPLOAD_RATE_LIMIT_REQUESTS`, `GATEWAY_UPLOAD_RATE_LIMIT_WINDOW_SECONDS` | Ограничения на внешней границе API |
 | Время ожидания HTTP | `GATEWAY_READ_HEADER_TIMEOUT_SECONDS`, `GATEWAY_READ_TIMEOUT_SECONDS`, `GATEWAY_WRITE_TIMEOUT_SECONDS`, `GATEWAY_IDLE_TIMEOUT_SECONDS`, `GATEWAY_SHUTDOWN_TIMEOUT_SECONDS`, `GATEWAY_MAX_HEADER_BYTES` | Ограничения публичного HTTP-сервера |
 | Передача через прокси | `GATEWAY_PROXY_DIAL_TIMEOUT_SECONDS`, `GATEWAY_PROXY_TLS_HANDSHAKE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS`, `GATEWAY_PROXY_IDLE_CONN_TIMEOUT_SECONDS`, `GATEWAY_PROXY_EXPECT_CONTINUE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_MAX_IDLE_CONNS`, `GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST` | Передача HTTP-запросов к внутренним службам |
-| gRPC | `GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS`, `GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS`, `GATEWAY_GRPC_TLS_ENABLED`, `GATEWAY_GRPC_TLS_CA_FILE`, `GATEWAY_GRPC_TLS_CERT_FILE`, `GATEWAY_GRPC_TLS_KEY_FILE`, `GATEWAY_GRPC_TLS_SERVER_NAME` | Соединения gRPC от Gateway к внутренним службам |
+| gRPC | `GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS`, `GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS` | Соединения gRPC от Gateway к внутренним службам |
 | Состояние и потоки | `GATEWAY_READINESS_TIMEOUT_SECONDS`, `GATEWAY_TELEMETRY_TICKET_TTL_SECONDS` | Время ожидания проверки готовности и срок действия билета доступа |
-| Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_MAX_AGE_SECONDS`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
+| Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
 
-Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Переменные с путями к файлам TLS используются только при `GATEWAY_GRPC_TLS_ENABLED=true`.
+Срок refresh-cookie вычисляется из срока сессии SSO (30 дней для локального входа и 12 часов для входа через Keycloak, не больше 7 дней без обновления); отдельной настройки срока cookie нет. Для cookie-запросов refresh/logout обязателен разрешённый `Origin` или `Referer`; список берётся из `CORS_ALLOWED_ORIGINS`.
 
-### Начальные ограничения Telemetry
+Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Внутренний gRPC работает без TLS внутри частных сетей Docker одного сервера; почему — см. [модель безопасности](security-model.md#учётные-данные-служб).
+
+### Потоки контейнеров в Core
+
+Core отдаёт журналы контейнеров (SSE) и терминал (WebSocket) на своём внутреннем HTTP-порту. Эти переменные — начальные настройки Core; имена сохранили префикс `TELEMETRY_`.
 
 | Переменная | Значение в шаблоне | Назначение |
 | --- | --- | --- |
-| `TELEMETRY_MAX_GLOBAL_LOG_STREAMS` | `100` | Глобальный предел SSE logs |
-| `TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS` | `50` | Глобальный предел terminal sessions |
-| `TELEMETRY_READ_HEADER_TIMEOUT_SECONDS` | `5` | HTTP header timeout |
-| `TELEMETRY_IDLE_TIMEOUT_SECONDS` | `120` | HTTP idle timeout |
-| `TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown timeout |
-| `TELEMETRY_MAX_HEADER_BYTES` | `1048576` | Header size limit |
-| `TELEMETRY_GRPC_REQUEST_TIMEOUT_SECONDS` | `10` | Core RPC timeout |
-| `TELEMETRY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS` | `5` | gRPC connect timeout |
+| `TELEMETRY_MAX_GLOBAL_LOG_STREAMS` | `100` | Наибольшее число одновременных потоков журналов на всю платформу |
+| `TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS` | `50` | Наибольшее число одновременных сеансов терминала на всю платформу |
+| `TELEMETRY_READ_HEADER_TIMEOUT_SECONDS` | `5` | Время ожидания заголовков внутреннего HTTP-сервера Core |
+| `TELEMETRY_IDLE_TIMEOUT_SECONDS` | `120` | Время простоя соединения внутреннего HTTP-сервера Core |
+| `TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS` | `15` | Время на штатную остановку внутреннего HTTP-сервера Core; открытые потоки и сеансы завершаются сразу |
+| `TELEMETRY_MAX_HEADER_BYTES` | `1048576` | Наибольший размер заголовков внутреннего HTTP-сервера Core |
 
-### Начальные безопасные значения ресурсов из `.env.example`
+### Начальные значения рабочих настроек
 
-Следующие переменные окружения используются при создании рабочих настроек Core: `DEFAULT_CPU_RESERVATION_MILLICORES`, `RESERVED_SYSTEM_CPU_MILLICORES`, `CPU_OVERCOMMIT_FACTOR`, `MAX_CPU_BURST_MULTIPLIER`, `CONTAINER_CPU_PERIOD`, `IMAGE_BUILDS_ENABLED`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS`, `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS`, `MAX_STAGED_SOURCE_BYTES_PER_USER`, `MAX_QUEUED_BUILDS_PER_USER`, `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES`, `MAX_QUEUED_CONTAINER_CREATES_PER_USER`, `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE`, `MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS`, `HOST_MIN_FREE_DISK_BYTES`, `GIT_SOURCES_ENABLED`, `GIT_ALLOWED_HOSTS`, `GIT_CLONE_TIMEOUT_SECONDS`, `GIT_MAX_REPOSITORY_BYTES`.
+Каждая рабочая настройка при первом запуске берёт значение из одноимённой переменной окружения в верхнем регистре (например, `default_user_quota_cpu` — из `DEFAULT_USER_QUOTA_CPU`) или значение по умолчанию. После первого запуска источником становится сохранённый файл: изменение такой переменной уже существующую настройку не перезаписывает, меняйте её на странице настроек. Значения запуска Core, наоборот, читаются из окружения при каждом запуске.
 
-`CORE_HOST_DISK_PATH=/host` указывает путь подключения, по которому Core измеряет свободное место. Необязательная переменная `BUILDER_INSTANCE_ID` позволяет задать постоянный идентификатор обработчика сборок.
+### Пути сервера и экземпляр Builder
 
-После первого запуска runtime JSON становится источником рабочих значений; изменение исходного env не обязано перезаписать уже сохранённый config.
+| Переменная | По умолчанию | Назначение |
+| --- | --- | --- |
+| `CORE_HOST_DISK_PATH` | `/host` | Префикс, под которым пути сервера видны внутри Core; `/`, если Core запущен прямо на сервере |
+| `DOCKER_DATA_ROOT` | `/var/lib/docker` | Каталог данных Docker на сервере, как его показывает `docker info` в поле `Docker Root Dir`. Абсолютный путь, отличный от `/` |
+| `TENANT_CGROUP_PARENT` | пусто | Родительская cgroup пользовательских контейнеров и контейнеров сборки, например `dcm-tenants.slice`. Читают Core и Builder |
+| `BUILDER_INSTANCE_ID` | `builder-1` (Compose и шаблон) | Постоянный идентификатор экземпляра Builder; обязателен |
 
-## Runtime config
+Compose подключает в Core только каталог `DOCKER_DATA_ROOT`, только для чтения и под префиксом (`/host/var/lib/docker`), а не всю файловую систему сервера. На файловой системе этого каталога Core измеряет свободное место для дискового порога (`host_min_free_disk_bytes`) и дисковые показатели мониторинга — там, куда Docker записывает образы, контейнеры и тома. Core не запускается, если каталог данных Docker не совпадает с `DOCKER_DATA_ROOT` и не лежит внутри него или если каталог не подключён; сообщение называет только переменную. Если сведения Docker при запуске прочитать не удалось, Core пишет одно предупреждение и продолжает работу.
 
-Эти настройки читаются и изменяются через административную панель или `/api/v1/admin/config`. При обновлении отправляется полный объект, поэтому клиент API должен сначала получить текущую конфигурацию, изменить нужные поля и вернуть все остальные без потери.
+Пустой `TENANT_CGROUP_PARENT` оставляет cgroup Docker по умолчанию; тогда Core при запуске пишет одно предупреждение. Создание и ограничение cgroup описано в [руководстве по развёртыванию](deployment-single-vm.md#ограничение-памяти-пользовательских-контейнеров).
+
+Без `BUILDER_INSTANCE_ID` Builder не запускается. Имя хоста для этого не годится: у контейнера оно меняется при каждом пересоздании. Контейнеры сборки получают метку `dcm.builder_instance_id`, и запускающийся Builder удаляет оставшиеся контейнеры сборки только со своим идентификатором. Каждому экземпляру Builder на одном Docker daemon нужен свой идентификатор; одновременные сборки всех экземпляров вместе ограничены `max_concurrent_builds`.
+
+## Рабочие настройки
+
+Эти настройки читаются и изменяются через страницу «Настройки системы» или `/api/v1/admin/config`. При обновлении отправляется полный объект из 49 полей, поэтому клиент API должен сначала получить текущую конфигурацию, изменить нужные поля и вернуть все остальные без потери. Поле, которое не является рабочей настройкой, в запросе игнорируется. В файле настроек хранятся только рабочие настройки; ключи старого файла, которые ими больше не являются, не действуют и удаляются при следующей записи.
+
+### Проверка настроек по серверу
+
+Настройки, которые не могут работать, не сохраняются. Кроме ограничений каждого поля, Core проверяет, что резервы и размер тома по умолчанию не больше квот по умолчанию: иначе каждый пользователь без индивидуальной квоты получил бы отказ уже на первом контейнере или томе.
+
+Обновление, которое меняет `reserved_system_memory_bytes`, `overcommit_factor`, `reserved_system_cpu_millicores`, `cpu_overcommit_factor`, `max_concurrent_builds`, `build_memory_bytes` или `build_cpu_millicores`, дополнительно проверяется по памяти и числу CPU сервера Core, теми же формулами пулов, что и допуск: пул памяти — `(память сервера − reserved_system_memory_bytes) × overcommit_factor`, пул CPU — `(число CPU × 1000 − reserved_system_cpu_millicores) × cpu_overcommit_factor`. Обновление отклоняется с `400 bad_request`, и ничего не сохраняется, если запас для системы не оставляет пула или если `max_concurrent_builds` слотов сборки требуют больше памяти или CPU, чем пул. Сообщение называет конфликт, но не значения. Если память или CPU сервера прочитать не удалось, ответ — `503 unavailable`, и тоже ничего не сохраняется. Обновление, которое не меняет ни одну из этих настроек, сервер не проверяет и сохраняет на любом сервере.
+
+При запуске Core проверяет текущие настройки так же и пишет в журнал по одной ошибке на каждый конфликт (`a capacity setting does not fit this host`, поле `conflict`); запуск при этом не прерывается, а допуск отклоняет то, что сервер не вмещает.
 
 ### Контейнеры и ресурсы сервера
 
 | Поля | Значение при первом запуске | Ограничение или назначение |
 | --- | --- | --- |
-| `base_domain` | `BASE_DOMAIN` | Непустой домен без пробелов и символов пути |
-| `default_memory_reservation_bytes` | 256 MiB | `> 0` |
-| `reserved_system_memory_bytes` | 2 GiB | `>= 0` |
-| `overcommit_factor` | `1.5` | `> 0`, `<= 10` |
-| `max_burst_multiplier` | `4` | `1..10` |
-| `default_cpu_reservation_millicores` | `250` | `> 0` |
-| `reserved_system_cpu_millicores` | `500` | `>= 0` |
+| `default_memory_reservation_bytes` | 256 MiB | `>= 16 MiB` и не больше `default_user_quota_ram_mb`. Резерв памяти контейнера, созданного без своего значения |
+| `reserved_system_memory_bytes` | 2 GiB | `>= 0`. Должен оставлять пул памяти для контейнеров и вмещать слоты сборки (см. [проверку по серверу](#проверка-настроек-по-серверу)) |
+| `overcommit_factor` | `1` | `> 0`, `<= 10`. Какую долю памяти, оставленной пользователям, можно пообещать в резервах. При `1` все резервы выполнимы одновременно |
+| `max_burst_multiplier` | `4` | `1..10`. Стандартный лимит памяти контейнера как кратное его резерва |
+| `default_cpu_reservation_millicores` | `250` | `>= 10` и не больше `default_user_quota_cpu`. Резерв CPU контейнера, созданного без своего значения |
+| `reserved_system_cpu_millicores` | `500` | `>= 0`. Должен оставлять пул CPU для контейнеров и вмещать слоты сборки (см. [проверку по серверу](#проверка-настроек-по-серверу)) |
 | `cpu_overcommit_factor` | `4` | `> 0`, `<= 10` |
-| `max_cpu_burst_multiplier` | `4` | `1..10` |
-| `container_cpu_period` | `100000` | `> 0` |
-| `default_cpu_shares`, `high_load_cpu_shares` | `1024`, `512` | `> 0` |
-| `high_load_container_count` | `5` | `> 0` |
+| `max_cpu_burst_multiplier` | `4` | `1..10`. Потолок CPU контейнера как кратное его резерва |
+| `memory_pressure_min_free_bytes` | 512 MiB | `>= 0`. Минимум свободной памяти в пуле пользовательских контейнеров; `0` отключает остановку при нехватке памяти |
+| `memory_boost_multiplier` | `8` | `1..64`. Потолок заимствования памяти как кратное резерва. Значение не больше `max_burst_multiplier` отключает заимствование |
+| `cpu_boost_multiplier` | `8` | `1..64`. Потолок заимствования CPU как кратное резерва CPU. Значение не больше `max_cpu_burst_multiplier` отключает заимствование CPU |
+| `boost_min_free_memory_bytes` | 2 GiB | `>= memory_pressure_min_free_bytes`. Свободная память пула, которая должна остаться после выдачи заимствования; ниже неё повышенные лимиты снижаются |
 | `container_stop_timeout` | `10` секунд | `> 0` |
 | `container_ttl_hours` | `24` | `0` отключает TTL, отрицательные запрещены |
 | `container_pids_limit` | `256` | `> 0` |
-| `container_memory_swap_multiplier` | `2` | `1..10` |
-| `max_log_size`, `max_log_files` | `10m`, `3` | Размер Docker и положительное количество файлов |
-| `container_disk_quota` | `1G` | Формат размера Docker |
+| `max_log_size` | `10m` | Размер одного файла журнала контейнера в формате Docker. Число хранимых файлов — значение запуска `MAX_LOG_FILES` |
+| `container_disk_quota` | `1G` | Формат размера Docker. Ограничение корневой файловой системы контейнера; действует только на поддерживающем его хранилище Docker. Действует ли оно на этом сервере, показывает `rootfs_quota_status` в мониторинге (см. [требования к серверу](deployment-single-vm.md#ограничение-корневой-файловой-системы-контейнеров)) |
 | `max_volumes_per_user`, `max_containers_per_user` | `5`, `10` | `> 0` |
+| `default_volume_size_bytes` | 256 MiB | `>= 1048576` (1 MiB) и не больше `default_user_quota_disk_mb`. Размер тома, созданного без указания размера, в том числе каждого тома Compose-развёртывания. Размер резервируется из дисковой квоты владельца при создании и потом не меняется; новое значение действует только на новые тома |
+| `volume_size_enforcement` | `false` | Передавать размер нового тома в Docker, чтобы запись сверх него отклонялась ядром. Включение проверяет сервер и отклоняется, если он не поддерживает размеры томов (см. [размеры томов](#размеры-томов-и-дисковая-квота)) |
+| `default_user_quota_cpu` | `2.0` | От `0.001` до `1000000` ядер. Квота CPU пользователя без индивидуальной квоты (см. [квоты пользователей](#квоты-пользователей)). При значениях по умолчанию квоты памяти и CPU вмещают одинаковое число контейнеров с резервом по умолчанию: по 8 |
+| `default_user_quota_ram_mb` | `2048` | `> 0`. Квота памяти пользователя без индивидуальной квоты, в МБ |
+| `default_user_quota_disk_mb` | `5120` | `> 0`. Дисковая квота пользователя без индивидуальной квоты, в МБ |
 | `reserved_domain_prefixes` | системные имена | Допустимые уникальные префиксы |
 | `blocked_domain_prefix_patterns` | пусто | Уникальные допустимые регулярные выражения |
+
+Стандартные лимиты контейнера задаются при создании и повторно применяются при каждом запуске. Изменение множителей `max_burst_multiplier` и `max_cpu_burst_multiplier` действует на существующий контейнер со следующего запуска. Резерв памяти защищён от вытеснения, а процессорное время под нагрузкой делится пропорционально резервам.
+
+Пул памяти пользовательских контейнеров равен памяти сервера за вычетом `reserved_system_memory_bytes` и памяти слотов сборки. Свободная часть пула — это пул минус фактически занятая контейнерами память без неактивного файлового кэша. Раз в `MEMORY_PRESSURE_INTERVAL_SECONDS` (значение запуска, по умолчанию 10 секунд) Core измеряет работающие контейнеры и действует в таком порядке:
+
+1. Если свободно меньше `boost_min_free_memory_bytes`, повышенные лимиты памяти снижаются до занятой памяти плюс запас (10% от неё, но не меньше 64 MiB) и никогда ниже стандартного лимита. Снижение меньше чем на 5% пропускается. Лимит выше того, что допускают текущие настройки (потолок понижен или заимствование отключено), снижается так же при любой проверке, даже на свободном сервере: до нового потолка, а при отключённом заимствовании — до стандартного лимита.
+2. Если свободно меньше `memory_pressure_min_free_bytes`, Core останавливает сначала контейнеры и сборки, занявшие больше своего стандартного лимита, начиная с наибольшего заимствования (контейнер сборки принудительно завершается, сборка получает `failed_resource_exhausted`), затем контейнеры, использующие больше своего резерва, начиная с наибольшего превышения, пока остановки не покроют нехватку. Контейнер, не превышающий резерв, платформа не останавливает. Причина остановки записывается в `last_error` контейнера.
+3. Если ничего не снижено и не остановлено, контейнер, занявший больше 85% текущего лимита, получает прибавку в половину стандартного лимита, но не выше потолка `резерв × memory_boost_multiplier`. Всего выдаётся не больше, чем оставляет свободными `boost_min_free_memory_bytes`; при нехватке остаток делится пропорционально резервам, а прибавки меньше 16 MiB не выдаются. Заимствованная память пользователя (сумма превышений лимитов над стандартными) не превышает его квоту памяти. Сниженный лимит не повышается снова в течение 6 проверок.
+
+Запущенные сборки участвуют в той же проверке: их резерв и стандартный лимит равны `build_memory_bytes`, потолок — `build_memory_bytes × memory_boost_multiplier`, а в занятую память пула входит только то, что сборка использует сверх `build_memory_bytes` (слот уже вычтен из пула). Заимствование не учитывается при допуске и не мешает запуску чужих контейнеров. Новые значения настроек действуют со следующей проверки: после понижения потолка или отключения заимствования уже повышенные лимиты снижаются до разрешённого уровня, но не ниже занятой памяти плюс запас, поэтому изменение настроек не останавливает нагрузку. Память, которую нагрузка продолжает занимать сверх стандартного лимита, остаётся заимствованной до её освобождения или следующего запуска. `memory_pressure_min_free_bytes = 0` отключает и остановки, и заимствование.
+
+Заимствование CPU выполняется в той же проверке, если `cpu_boost_multiplier` больше `max_cpu_burst_multiplier`. Использование CPU считается по разнице процессорного времени между двумя проверками, поэтому на первой проверке после запуска решений нет. Если контейнер или сборка за интервал заняли больше 85% стандартной квоты CPU, Core читает загрузку CPU сервера (около секунды) и, если она ниже 60% или выше 85%, текущую квоту:
+
+1. При загрузке ниже 60% нагрузка, превышающая 85% текущей квоты, получает ещё одну стандартную квоту, но не выше потолка `резерв CPU × cpu_boost_multiplier` (для сборки — `build_cpu_millicores × cpu_boost_multiplier`).
+2. При загрузке выше 85% повышенные квоты возвращаются к стандартным. Изъятие CPU только замедляет нагрузку и никогда её не останавливает. Возвращённая квота не повышается снова в течение 6 проверок.
+
+CPU shares, лимиты и резервы памяти при этом не меняются; изменение памяти и CPU одной нагрузки в одной проверке отправляется одним обновлением. Лимиты памяти снижаются до чтения загрузки CPU; нагрузка, которой в этой проверке снизили лимит памяти, получает изменение CPU на следующей. При запуске квота возвращается к стандартной.
 
 ### Сборки, Git и безопасность
 
 | Поля | Значение по умолчанию | Назначение |
 | --- | --- | --- |
 | `image_builds_enabled` | `true` | Глобально включает сборки |
-| `build_memory_bytes`, `build_cpu_quota`, `build_cpu_period` | 512 MiB, `100000`, `100000` | Резервы и ограничения сборки |
-| `build_memory_swap_multiplier`, `build_pids_limit` | `2`, `512` | Изоляция среды выполнения |
-| `kaniko_image` | последняя версия Kaniko | Образ обработчика сборок |
-| `max_build_time_minutes`, `max_concurrent_builds` | `10`, `2` | Время ожидания и количество одновременных сборок |
-| `max_upload_size_bytes`, `max_archive_size_bytes`, `max_unpacked_size_bytes` | 50 MiB, 50 MiB, 500 MiB | Ограничения размера сборки |
-| `max_build_log_size_bytes` | 5 MiB | Ограничение размера сохранённого журнала |
-| `max_staged_source_bytes_per_user`, `max_queued_builds_per_user` | 1 GiB, `10` | Ограничения для одного пользователя |
-| `host_min_free_disk_bytes` | 1 GiB | Минимальный прогнозируемый остаток места на диске |
+| `build_memory_bytes`, `build_cpu_millicores` | 512 MiB и `1000` (одно ядро); корневой Compose задаёт 2 GiB и `2000` | Ограничения сборки и размер одного слота сборки. Ресурсы сервера резервируют не более `max_concurrent_builds` слотов; сборки, ожидающие в очереди за ними, ничего не резервируют |
+| `build_max_disk_bytes` | 10 GiB | Сколько данных на диск может записать одна сборка (не меньше 64 MiB). Builder каждые 5 секунд проверяет размер записываемого слоя контейнера сборки и останавливает сборку, превысившую лимит: она завершается с `failed_resource_exhausted` и её можно повторить. Где драйвер хранилища Docker это поддерживает (overlay2 на xfs с `pquota`), размер корневой файловой системы контейнера сборки ограничивается тем же значением. Каждый слот сборки удерживает этот объём при запуске, а не при создании: сборка запускается, только если свободного места выше `host_min_free_disk_bytes` хватает ещё на один слот, то есть одновременно выполняется не больше `min(max_concurrent_builds, (свободно − host_min_free_disk_bytes) / build_max_disk_bytes)` сборок; остальные ждут в `pending`. При создании сборка отклоняется (`disk_floor`), только если свободного места уже меньше `host_min_free_disk_bytes`. Место считается на диске сервера Core, поэтому правило верно только для Builder на том же сервере |
+| `max_build_time_minutes`, `max_concurrent_builds` | `10`, `2` | Бюджет выполнения после захвата задачи и количество одновременных сборок на всю платформу, сколько бы экземпляров Builder ни работало: Core отказывает в захвате сборки, пока выполняется `max_concurrent_builds` сборок, и сборка остаётся в очереди. То же значение ограничивает выпуск сборок одного пользователя в Builder: у пользователя одновременно не больше `max_concurrent_builds` выпущенных сборок в `pending` или `running`, остальные ждут в базе данных в состоянии `pending`, поэтому сборка другого пользователя стоит в очереди только за уже выпущенными. Пользователь, который один на платформе, занимает все слоты. Уменьшение значения ничего не останавливает: захваты отклоняются, пока число выполняемых сборок не опустится ниже нового предела |
+| `max_archive_size_bytes`, `max_unpacked_size_bytes` | 50 MiB, 500 MiB | Наибольший архив исходников и их размер после распаковки. Предел запроса загрузки выводится из `max_archive_size_bytes`: архив плюс фиксированный запас на поля формы |
+| `max_build_log_size_bytes` | 5 MiB | Лимит исходного вывода и отдельно сохранённого журнала (включая системные сообщения) |
+| `max_staged_source_bytes_per_user` | 1 GiB | Временные исходники одного пользователя (архивы и Git-исходники сборок, источники Compose), проверяется после дисковой квоты; `0` снимает этот предел, дисковая квота продолжает действовать |
+| `max_queued_builds_per_user`, `max_queued_compose_deploys_per_user` | `10`, `5` | Сколько сборок и Compose-развёртываний одного пользователя может одновременно ждать или выполняться. Предел развёртываний проверяется до приёма архива или клонирования и ещё раз вместе с постановкой в очередь, поэтому одновременные запросы его не превышают; сборки Compose-проекта считаются против предела сборок уже при приёме развёртывания. Не меньше `1`: ноль отклоняется, сборки отключаются настройкой `image_builds_enabled` |
+| `compose_upload_max_bytes` | 100 MiB | Наибольшая Compose-загрузка |
+| `compose_pipeline_timeout_minutes`, `compose_dependency_wait_timeout_minutes` | `30`, `5` | Сроки Compose-развёртывания, см. ниже |
+| `telemetry_allowed_exec_commands` | `/bin/sh`, `/bin/bash`, `/busybox/sh` | Команды терминала; список не может быть пустым |
+| `telemetry_terminal_idle_timeout_seconds`, `telemetry_terminal_max_duration_seconds` | `300`, `3600` | Время бездействия и наибольшая длительность сеанса терминала |
+| `host_min_free_disk_bytes` | 1 GiB | Минимальный прогнозируемый остаток места на диске. Создание тома учитывает и неиспользованную часть размеров всех томов: см. [размеры томов](#размеры-томов-и-дисковая-квота). `0` отключает проверку |
 | `git_sources_enabled` | `true` | Включает источники Git |
 | `git_allowed_hosts` | GitHub/GitLab/Bitbucket | Точный список разрешённых имён серверов |
 | `git_clone_timeout_seconds`, `git_max_repository_bytes` | `60`, 200 MiB | Ограничения клонирования |
 
-### Фоновые обработчики, Compose, отчёты и телеметрия
+`max_build_log_size_bytes` ограничивает и исходный вывод Kaniko, и сохранённый журнал вместе с системными сообщениями. Превышение любого из лимитов останавливает Kaniko и завершает сборку как `failed`; журнал может быть неполным. Ошибки чтения, записи, короткая запись и ошибка закрытия журнала дают `failed_internal`; ошибка загрузки журнала в объектное хранилище также не позволяет завершить сборку как `success`. Явная отмена и тайм-аут сохраняют свои конечные состояния.
 
-- Обработчики сборок: `build_cancel_poll_interval_seconds`, `build_outbox_interval_seconds`, `build_outbox_batch_size`, `stale_build_timeout_minutes`.
-- Жизненный цикл контейнеров: `container_create_worker_count`, `container_create_max_attempts`, `container_create_timeout_minutes`, `max_queued_container_creates_per_user`, `container_create_outbox_interval_seconds`, `container_create_outbox_batch_size`.
-- Сверка состояния и очистка: `ttl_worker_interval_seconds`, `gc_worker_interval_minutes`, `event_sync_interval_seconds`, `event_reconnect_delay_seconds`.
-- Compose: `compose_upload_max_bytes`, `compose_pipeline_timeout_minutes`, `compose_deploy_worker_count`, `compose_outbox_interval_seconds`, `compose_outbox_batch_size`, `compose_deploy_max_attempts`, `max_queued_compose_deploys_per_user`, `compose_build_poll_interval_seconds`, `compose_dependency_wait_timeout_minutes`, `compose_dependency_poll_interval_seconds`, `compose_coordinator_interval_seconds`.
-- Отчёты: `reports_usage_snapshot_interval_seconds`, допустимый диапазон `60..86400` секунд, значение по умолчанию `300`.
-- Телеметрия: `telemetry_max_log_tail_lines`, `telemetry_max_log_streams_per_user`, `telemetry_max_terminal_sessions_per_user`, `telemetry_terminal_idle_timeout_seconds`, `telemetry_terminal_max_duration_seconds`, `telemetry_allowed_exec_commands`, `telemetry_max_command_args`, `telemetry_max_command_arg_bytes`, `telemetry_ws_read_limit_bytes`.
+Ожидание в очереди не расходует `max_build_time_minutes`: отсчёт начинается, когда Builder захватывает сборку (`started_at`). До захвата API возвращает `started_at = 0`, а интерфейс показывает прочерк. Списки сборок упорядочены по времени создания.
+
+Сборки `pending` не имеют срока истечения по возрасту: при недоступности Builder они ожидают восстановления или явной отмены. Число задач ограничивают квоты очереди; резервы RAM/CPU и исходных файлов сохраняются до терминального состояния. `STALE_BUILD_TIMEOUT_MINUTES` (значение запуска, по умолчанию 30 минут) — отдельный порог восстановления зависших `running` задач, отсчитываемый от `started_at`, а не `created_at`. Фактический порог никогда не меньше `max_build_time_minutes` плюс 10 минут на завершение и доставку результата, поэтому увеличение времени сборки не приводит к завершению ещё выполняющихся сборок. GC периодически завершает такие задачи как `failed_timeout`, сохраняя защиту отменённых и других терминальных состояний и освобождая резервы обычным путём завершения. Он также остаётся возрастным порогом очистки осиротевших исходных файлов; источники активных `pending/running` задач исключены из такой очистки.
+
+Builder сохраняет результат сборки в `BUILD_STORAGE_PATH/results` до отправки его в Core, поэтому при временной недоступности Core завершение доставляется повторно без нового запуска Kaniko. Каталог должен переживать перезапуск (Compose использует том `builder_storage`), а все экземпляры Builder одной очереди должны видеть один и тот же каталог.
+
+### Значения запуска Core
+
+Эти значения не являются рабочими настройками: их нет на странице настроек, в `/admin/config` и в файле настроек. Core читает их из окружения при каждом запуске и проверяет; изменение требует перезапуска Core. Ниже в тексте они названы в нижнем регистре, переменная окружения — то же имя в верхнем.
+
+| Переменные | По умолчанию | Назначение |
+| --- | --- | --- |
+| `BASE_DOMAIN` | обязательна | Базовый домен публичных адресов. Тот же домен используют Traefik и сборка клиентской части (`VITE_BASE_DOMAIN`) |
+| `KANIKO_IMAGE` | Kaniko, закреплённый по digest | Образ обработчика сборок |
+| `CONTAINER_CPU_PERIOD`, `BUILD_CPU_PERIOD`, `DEFAULT_CPU_SHARES` | `100000`, `100000`, `1024` | Период cgroup и CPU shares контейнера с резервом по умолчанию |
+| `CONTAINER_MEMORY_SWAP_MULTIPLIER`, `BUILD_MEMORY_SWAP_MULTIPLIER` | `2`, `2` | Память плюс swap как кратное лимита, `1..10` |
+| `MAX_LOG_FILES`, `BUILD_PIDS_LIMIT` | `3`, `512` | Число файлов журнала контейнера; предел процессов сборки |
+| `MAX_QUEUED_CONTAINER_CREATES_PER_USER` | `5` | Создания контейнеров одного пользователя в очереди; `0` — без предела. Развёртывание Compose с большим числом сервисов ждёт очереди, а не завершается ошибкой |
+| `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES` | `2`, `3`, `30` | Обработчики операций контейнеров, томов и образов; таймаут ограничивает каждую доставку операции, а операция, выполняющаяся дольше таймаута плюс 5 минут, или ожидающая столько же после потери своего сообщения, восстанавливается автоматически |
+| `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE` | `1`, `10` | Отправка операций контейнеров, томов и образов в очередь |
+| `BUILD_OUTBOX_INTERVAL_SECONDS`, `BUILD_OUTBOX_BATCH_SIZE`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS` | `1`, `10`, `2` | Отправка сборок в очередь; опрос отмены в Builder |
+| `COMPOSE_DEPLOY_WORKER_COUNT`, `COMPOSE_DEPLOY_MAX_ATTEMPTS`, `COMPOSE_OUTBOX_INTERVAL_SECONDS`, `COMPOSE_OUTBOX_BATCH_SIZE`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS` | `2`, `3`, `1`, `10`, `2` | Обработчики и координатор Compose |
+| `TTL_WORKER_INTERVAL_SECONDS`, `EVENT_SYNC_INTERVAL_SECONDS`, `EVENT_RECONNECT_DELAY_SECONDS` | `60`, `30`, `5` | Автоостановка и сверка состояния с Docker |
+| `GC_WORKER_INTERVAL_MINUTES`, `STALE_BUILD_TIMEOUT_MINUTES` | `60`, `30` | Очистка и порог зависших сборок |
+| `REGISTRY_CLEANUP_INTERVAL_SECONDS`, `REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS`, `REGISTRY_GC_MAX_DURATION_SECONDS` | `5`, `20`, `900` | Очистка и сборка мусора Registry |
+| `VOLUME_USAGE_INTERVAL_SECONDS`, `VOLUME_USAGE_CYCLE_BUDGET_SECONDS`, `VOLUME_USAGE_SCAN_ENTRY_BUDGET` | `60`, `15`, `50000` (`1..10000000`) | Учёт занятости томов |
+| `MEMORY_PRESSURE_INTERVAL_SECONDS` | `10` | Интервал измерения памяти и CPU работающих нагрузок |
+| `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS` | `300` (`60..86400`) | Интервал снимков использования для отчётов |
+| `TELEMETRY_MAX_LOG_TAIL_LINES`, `TELEMETRY_MAX_LOG_STREAMS_PER_USER`, `TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER` | `1000`, `5`, `2` | Пределы журналов и терминала на пользователя |
+| `TELEMETRY_MAX_COMMAND_ARGS`, `TELEMETRY_MAX_COMMAND_ARG_BYTES`, `TELEMETRY_WS_READ_LIMIT_BYTES` | `8`, `128`, `4096` | Аргументы команды терминала и размер сообщения WebSocket |
+
+Сборка мусора Registry запускается на такте `gc_worker_interval_minutes` только когда ни одна сборка не выполняется, и пока она идёт, новые сборки остаются в очереди `pending` и стартуют после неё. Если в момент такта сборки выполняются, попытка повторяется каждую минуту. Если сборка мусора не завершалась сутки, новые сборки ждут завершения уже идущих, после чего она запускается. `registry_gc_max_duration_seconds` — срок аренды: пока процесс работает дольше него, аренда продлевается и в журнал записывается одна ошибка.
+
+Координатор Compose проверяет условия `depends_on` на каждом такте `compose_coordinator_interval_seconds`. Развёртывание ограничено двумя сроками, оба — рабочие настройки. Сервис, который ждёт свои зависимости дольше `compose_dependency_wait_timeout_minutes`, переводит развёртывание в `failed` с сообщением, называющим зависимость; отсчёт начинается, когда сервис впервые ждёт, и сохраняется в задании, поэтому перезапуск Core его не сбрасывает. Развёртывание, не завершившееся через `compose_pipeline_timeout_minutes` после старта задания, тоже переходит в `failed` и откатывается. Отмена и уже идущий откат этими сроками не прерываются.
+
+Сверка состояния с Docker идёт двумя путями: подписка на Docker Events переподключается через `event_reconnect_delay_seconds` после разрыва, а периодическая сверка через `event_sync_interval_seconds` продолжается и при разрывах.
+
+Учёт занятости томов выполняется отдельно от сверки Docker Events: цикл запускается через `volume_usage_interval_seconds` после окончания предыдущего и сканирует файлы томов не дольше `volume_usage_cycle_budget_seconds`. За цикл в одном томе обрабатывается не больше `volume_usage_scan_entry_budget` файлов и каталогов. Тома обходятся по кругу; том, прерванный ограничением времени после других томов, начинает следующий цикл и получает весь лимит, а том, прерванный в начале цикла, пропускает вперёд остальные, поэтому ни один том не задерживается бесконечно. Незавершённое сканирование продолжается в следующем цикле с места остановки; после перезапуска Core оно начинается заново.
+
+Занятое место тома (`used_bytes`, `usage_observed_at`) обновляется только по завершённому сканированию; сканирование, растянутое на несколько циклов, не является снимком одного момента. Пока измерение не опубликовано, обработчик сравнивает с размером тома большее из последнего измерения и уже подсчитанного объёма; файлы, удалённые после подсчёта, могут временно завышать это значение.
+
+### Квоты пользователей
+
+Квоты CPU, памяти и диска хранит Core, а не SSO: допуск не обращается к сервису идентификации и продолжает работать, когда SSO недоступен. Индивидуальная квота пользователя хранится в таблице `user_quotas` базы Core (CPU в миллиядрах, память и диск в МБ). Пользователь без индивидуальной квоты получает квоту по умолчанию из `default_user_quota_cpu`, `default_user_quota_ram_mb` и `default_user_quota_disk_mb`. Значения по умолчанию читаются при каждой проверке, поэтому их изменение действует для всех таких пользователей с их следующего запроса и не затрагивает пользователей с индивидуальной квотой. CPU-квота округляется до целых миллиядер. Индивидуальную квоту администратор задаёт и сбрасывает на странице пользователей или через `PUT` и `DELETE /api/v1/admin/users/{id}/quota` (см. [руководство администратора](admin-guide.md#квоты-пользователя)); снижение квоты не останавливает уже запущенное. Квотами пользуются допуск контейнеров, томов, сборок и запусков проектов, проверка загружаемых исходников, проверка образа после сборки, ограничение заимствованной памяти и главная панель пользователя.
+
+SSO квот не хранит. Снижение квоты ничего не останавливает: уже зарезервированное остаётся, новые запросы сверх квоты отклоняются.
+
+### Размеры томов и дисковая квота
+
+У каждого тома есть размер (`size_bytes`): пользователь задаёт его при создании, иначе берётся `default_volume_size_bytes`. Размер не меньше 1 MiB и после создания не меняется.
+
+Дисковая квота пользователя считается по зарезервированному месту: диск его образов плюс для каждого тома, кроме удаляемых, его размер, а если измеренное занятое место больше размера — измерение. Удалённый том перестаёт учитываться сразу. Создание тома допускается, только если зарезервированное место вместе с размером нового тома не превышает квоту; иначе запрос отклоняется с ошибкой «user disk quota exceeded». Тома Compose-развёртывания получают размер по умолчанию и проходят ту же проверку; развёртывание, тома которого не помещаются, завершается этой ошибкой. Размер из Compose-файла не читается. Создание контейнеров, загрузка образов и сборки отклоняются, когда зарезервированное место уже заполняет квоту, даже если фактически занято мало. Временные исходники (архивы и Git-исходники сборок, источники Compose) проверяются одним правилом: зарезервированное место плюс уже ожидающие исходники плюс новый источник, учтённый по максимальному допустимому размеру, не должны превышать квоту (`user_disk`); затем ожидающие исходники вместе с новым — `max_staged_source_bytes_per_user` (`staged_source_bytes`). Проверка и запись резерва выполняются по очереди с остальными проверками того же пользователя, поэтому одновременные загрузки квоту не превышают; после загрузки резерв уменьшается до фактического размера. При завершении сборки размер образа проверяется по остатку квоты (при пересборке без образа, который она заменяет); образ, который не помещается, не сохраняется, а сборка получает статус `failed_quota_exceeded`. Эта проверка и создание тома одного пользователя выполняются по очереди, поэтому одновременно завершающиеся сборки не превышают квоту.
+
+Размер тома обещает и диск сервера. Неиспользованная часть обещания — сумма по всем томам всех пользователей, кроме удаляемых, их размеров за вычетом измеренного занятого места (не меньше нуля для каждого тома). Том создаётся, только если свободное место на диске за вычетом этой суммы и размера нового тома не меньше `host_min_free_disk_bytes`; иначе запрос отклоняется как нехватка места на сервере (`limit` = `disk_floor`, статус 503). Так проверяются и тома Compose-развёртываний. Поэтому на небольшом диске создание томов отклоняется, как только обещанное томам доходит до диска, даже если фактически занято мало. Настройки допустимого превышения нет. Остальные операции (контейнеры, сборки, загрузка исходников и образов) обещания томов не учитывают и проверяют только остаток свободного места. Неиспользованное обещание показывает мониторинг (`dcm_unused_volume_promise_bytes`).
+
+Размер проверяется периодически (`size_enforced = false`): когда занятое место тома, включая уже подсчитанную часть незавершённого сканирования, превышает его размер, обработчик ставит в очередь остановку каждого работающего контейнера, который монтирует **этот** том на запись, с причиной «stopped by the platform: a volume this container can write to grew beyond its size». Контейнеры, монтирующие том только на чтение, и контейнеры других томов продолжают работать. Контейнер с активной операцией пропускается, неудачная остановка одного контейнера не прерывает проверку остальных. В этом режиме том может превысить свой размер в промежутке между двумя измерениями.
+
+Размеры томов работают в одном из двух режимов, который показывает `volume_size_mode` в мониторинге:
+
+- **Измеряемый том** (`measured`, по умолчанию, `volume_size_enforcement = false`): Docker размер не получает, размер проверяется периодически, как описано выше. Работает на любой файловой системе.
+- **Ограниченный ядром том** (`enforced`, `volume_size_enforcement = true` и сервер поддерживает размеры): новый том создаётся в Docker с параметром `size` локального драйвера, и запись сверх размера завершается внутри контейнера обычной ошибкой нехватки места, а контейнер не останавливается. Такой том отмечается `size_enforced = true`; обработчик учёта томов по-прежнему измеряет его для отчётов, но контейнеры из-за него не останавливает: измерение складывает видимые размеры файлов, и разрежённые файлы могут показать больше размера, который ядро превысить не даст.
+
+При включении `volume_size_enforcement` Core создаёт и сразу удаляет пробный том с размером. Если Docker отказывает (например, `quota size requested but no quota support` на ext4), изменение настроек отклоняется с ошибкой 400; если проверку не удалось выполнить (например, Docker недоступен), изменение тоже не сохраняется, а ответ сообщает, что проверку нужно повторить. Выключение и сохранение без изменения этой настройки проверку не запускают. Если настройка включена при запуске Core, проверка выполняется один раз; если она не проходит, Core всё равно запускается, пишет ошибку в журнал и создаёт новые тома в измеряемом режиме, а мониторинг показывает `unavailable` — до следующего запуска или до успешного повторного включения настройки (выключить и включить снова). Если Docker откажет в размере при создании конкретного тома, создание этого тома завершается ошибкой без перехода в измеряемый режим.
+
+Существующие тома никогда не меняются: том сохраняет значение `size_enforced`, с которым был создан. Тома, созданные до включения настройки, остаются измеряемыми и по-прежнему проверяются периодически. Требования к серверу описаны в [руководстве по развёртыванию](deployment-single-vm.md#ограничение-размеров-томов).
+
+Ограничения: стоимость сканирования растёт с числом файлов и каталогов, а не с объёмом данных — при прогретом кэше порядка 3–5 мкс на запись (50000 записей за 0,15–0,4 с), при холодном диске значительно больше. Каталог читается целиком и не прерывается посреди чтения, поэтому цикл может превысить лимит на время чтения одного каталога, а `volume_usage_cycle_budget_seconds` должен превышать время чтения самого большого каталога тома. Каждое продолжение заново читает каталоги на пути к месту остановки: каталог со 100000 файлов при лимите 50000 обходится примерно в 1,5 раза дороже, и стоимость растёт пропорционально размеру каталога, делённому на лимит.
 
 Все поля количества, интервала, времени ожидания и размера должны быть положительными, кроме явно разрешённых нулевых ограничений. Разрешённые серверы, команды и префиксы должны быть непустыми и уникальными.
+
+## Реестр образов
+
+Начальные параметры реестра; секреты не входят в рабочие настройки. Как устроены авторизация и права сборок, описано в [модели безопасности](security-model.md#реестр-образов).
+
+| Переменная | Назначение |
+| --- | --- |
+| `REGISTRY_URL` | Канонический адрес для Kaniko и token realm, по умолчанию `registry:5000` |
+| `REGISTRY_PUBLIC_URL` | Адрес, по которому Docker daemon загружает образы; в штатной конфигурации тоже `registry:5000` |
+| `REGISTRY_API_URL` | Адрес API реестра для Core, по умолчанию `https://registry-backend:5000` |
+| `REGISTRY_BACKEND_URL` | Внутренний HTTPS-адрес Registry, куда listener реестра Core передаёт запросы; Compose задаёт `https://registry-backend:5000` |
+| `REGISTRY_CERTS_DIR` | Абсолютный каталог сертификатов на сервере (см. [развёртывание](deployment-single-vm.md#7-подготовьте-сертификаты-реестра-образов)) |
+| `REGISTRY_CA_FILE` | CA для соединений Core и Builder; в Compose `/run/dcm-registry/ca.crt` |
+| `REGISTRY_TLS_CERT_FILE`, `REGISTRY_TLS_KEY_FILE` | TLS-сертификат отдельного listener реестра в Core |
+| `REGISTRY_SIGNING_CERT_FILE`, `REGISTRY_SIGNING_KEY_FILE` | RSA-пара Core для подписи токенов реестра (не меньше 2048 бит) |
+| `REGISTRY_TOKEN_ISSUER` | Издатель токенов, одинаковый у Core и Registry; `dcm-core` |
+| `REGISTRY_HTTP_SECRET` | Отдельный секрет Registry для состояния возобновляемых загрузок |
+
+Интервалы очистки реестра (`REGISTRY_CLEANUP_*`, `REGISTRY_GC_MAX_DURATION_SECONDS`) перечислены среди [значений запуска Core](#значения-запуска-core).
+
+Удаляемый образ остаётся в состоянии `deleting`, пока Registry не подтвердит удаление manifest или его отсутствие. Ошибки и недоступность Registry повторяются в пределах настроенного числа попыток; после их исчерпания операция переходит в `failed`, а образ — в `error`, но запись владельца сохраняется. Каждое обращение Core к Registry ограничено 60 секундами; подробности ответа Registry пользователю не передаются.
 
 [Аутентификация](authentication.md) · [Руководство администратора](admin-guide.md) · [К оглавлению](README.md)

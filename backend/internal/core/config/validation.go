@@ -1,19 +1,27 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
 
+// ValidateSystemConfig checks a whole snapshot: the runtime settings an update
+// may change and the fixed part read at startup. Its messages reach the client
+// of a settings update, so none of them echoes a rejected value.
 func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BaseDomain == "" || strings.ContainsAny(cfg.BaseDomain, " `/\\") {
 		return fmt.Errorf("invalid base domain")
 	}
-	if cfg.DefaultMemoryReservation <= 0 || cfg.ReservedSystemMemory < 0 {
-		return fmt.Errorf("memory limits must be positive")
+	if cfg.ReservedSystemMemory < 0 {
+		return fmt.Errorf("reserved system memory must not be negative")
+	}
+	if cfg.DefaultMemoryReservation < MinMemoryReservationBytes {
+		return fmt.Errorf("default memory reservation must be at least %s", MinMemoryReservation())
 	}
 	if cfg.OvercommitFactor <= 0 || cfg.OvercommitFactor > 10 {
 		return fmt.Errorf("overcommit factor must be between 0 and 10")
@@ -21,8 +29,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxBurstMultiplier <= 0 || cfg.MaxBurstMultiplier > 10 {
 		return fmt.Errorf("max burst multiplier must be between 1 and 10")
 	}
-	if cfg.DefaultCPUReservation <= 0 || cfg.ReservedSystemCPU < 0 {
-		return fmt.Errorf("cpu reservation limits must be positive")
+	if cfg.ReservedSystemCPU < 0 {
+		return fmt.Errorf("reserved system cpu must not be negative")
+	}
+	if cfg.DefaultCPUReservation < MinCPUReservationMillicores {
+		return fmt.Errorf("default cpu reservation must be at least %d millicores", MinCPUReservationMillicores)
 	}
 	if cfg.CPUOvercommitFactor <= 0 || cfg.CPUOvercommitFactor > 10 {
 		return fmt.Errorf("cpu overcommit factor must be between 0 and 10")
@@ -33,11 +44,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ContainerCPUPeriod <= 0 {
 		return fmt.Errorf("container cpu period must be positive")
 	}
-	if cfg.DefaultCPUShares <= 0 || cfg.HighLoadCPUShares <= 0 {
+	if cfg.DefaultCPUShares <= 0 {
 		return fmt.Errorf("cpu shares must be positive")
 	}
-	if cfg.HighLoadContainerCount <= 0 || cfg.ContainerStopTimeout <= 0 {
-		return fmt.Errorf("container counters and timeouts must be positive")
+	if cfg.ContainerStopTimeout <= 0 {
+		return fmt.Errorf("container stop timeout must be positive")
 	}
 	if err := validation.DockerSize(cfg.MaxLogSize); err != nil {
 		return fmt.Errorf("invalid max log size: %w", err)
@@ -54,7 +65,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 			return fmt.Errorf("reserved domain prefixes must not contain empty values")
 		}
 		if err := validation.DomainPrefix(prefix); err != nil {
-			return fmt.Errorf("invalid reserved domain prefix %q: %w", prefix, err)
+			return fmt.Errorf("invalid reserved domain prefix: %w", err)
 		}
 		normalized := strings.ToLower(prefix)
 		if _, ok := seenPrefixes[normalized]; ok {
@@ -68,8 +79,10 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		if trimmed == "" {
 			return fmt.Errorf("blocked domain prefix patterns must not contain empty values")
 		}
+		// The regexp error quotes the pattern, and this message reaches the
+		// client, so the cause is replaced rather than wrapped.
 		if _, err := regexp.Compile("^(?:" + trimmed + ")$"); err != nil {
-			return fmt.Errorf("invalid blocked domain prefix pattern %q: %w", pattern, err)
+			return errors.New("invalid blocked domain prefix pattern: expected a valid regular expression")
 		}
 		if _, ok := seenBlockedPatterns[trimmed]; ok {
 			return fmt.Errorf("blocked domain prefix patterns must be unique")
@@ -97,7 +110,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.RegistryContainerName == "" {
 		return fmt.Errorf("registry container name is required")
 	}
-	if cfg.BuildMemoryBytes <= 0 || cfg.BuildCPUQuota <= 0 || cfg.BuildCPUPeriod <= 0 || cfg.BuildPidsLimit <= 0 {
+	if cfg.BuildMemoryBytes <= 0 || cfg.BuildCPUMillicores <= 0 || cfg.BuildCPUPeriod <= 0 || cfg.BuildPidsLimit <= 0 {
 		return fmt.Errorf("build resource limits must be positive")
 	}
 	if cfg.BuildMemorySwapMultiplier < 1 || cfg.BuildMemorySwapMultiplier > 10 {
@@ -109,8 +122,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxBuildTimeMinutes <= 0 || cfg.MaxConcurrentBuilds <= 0 {
 		return fmt.Errorf("build time and concurrency must be positive")
 	}
-	if cfg.MaxUploadSizeBytes <= 0 || cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
+	if cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
 		return fmt.Errorf("build size limits must be positive")
+	}
+	if cfg.BuildMaxDiskBytes < MinBuildMaxDiskBytes {
+		return fmt.Errorf("build max disk must be at least %d MiB", MinBuildMaxDiskBytes>>20)
 	}
 	if cfg.BuildCancelPollIntervalSeconds <= 0 {
 		return fmt.Errorf("build cancel poll interval must be positive")
@@ -133,8 +149,44 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ReportsUsageSnapshotIntervalSeconds < MinReportsUsageSnapshotIntervalSeconds || cfg.ReportsUsageSnapshotIntervalSeconds > MaxReportsUsageSnapshotIntervalSeconds {
 		return fmt.Errorf("reports usage snapshot interval must be between %d and %d seconds", MinReportsUsageSnapshotIntervalSeconds, MaxReportsUsageSnapshotIntervalSeconds)
 	}
-	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.MaxQueuedBuildsPerUser < 0 || cfg.MaxQueuedComposeDeploysPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 {
+	if cfg.MaxQueuedBuildsPerUser <= 0 || cfg.MaxQueuedComposeDeploysPerUser <= 0 {
+		return fmt.Errorf("queued builds and compose deployments per user must be positive")
+	}
+	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 || cfg.MemoryPressureMinFreeBytes < 0 {
 		return fmt.Errorf("resource safety limits must not be negative")
+	}
+	if cfg.MemoryPressureIntervalSeconds <= 0 {
+		return fmt.Errorf("memory pressure interval must be positive")
+	}
+	if cfg.MemoryBoostMultiplier < 1 || cfg.MemoryBoostMultiplier > MaxBoostMultiplier {
+		return fmt.Errorf("memory boost multiplier must be between 1 and %d", MaxBoostMultiplier)
+	}
+	if cfg.CPUBoostMultiplier < 1 || cfg.CPUBoostMultiplier > MaxBoostMultiplier {
+		return fmt.Errorf("cpu boost multiplier must be between 1 and %d", MaxBoostMultiplier)
+	}
+	if cfg.BoostMinFreeMemoryBytes < cfg.MemoryPressureMinFreeBytes {
+		return fmt.Errorf("boost minimum free memory must be at least the memory pressure minimum free memory")
+	}
+	if cfg.DefaultVolumeSizeBytes < MinVolumeSizeBytes {
+		return fmt.Errorf("default volume size must be at least 1 MiB")
+	}
+	// NaN fails every comparison, so it is rejected too.
+	if !(cfg.DefaultUserQuotaCPU > 0 && cfg.DefaultUserQuotaCPU <= MaxUserQuotaCPU) || CPUMillicores(cfg.DefaultUserQuotaCPU) < 1 {
+		return fmt.Errorf("default user cpu quota must be between 0.001 and %.0f cores", MaxUserQuotaCPU)
+	}
+	if cfg.DefaultUserQuotaRAMMB <= 0 || cfg.DefaultUserQuotaDiskMB <= 0 {
+		return fmt.Errorf("default user memory and disk quotas must be positive")
+	}
+	// A default above the default quota would refuse the first container or
+	// volume of every owner without a custom quota.
+	if cfg.DefaultMemoryReservation > mebibytesToBytes(cfg.DefaultUserQuotaRAMMB) {
+		return fmt.Errorf("default memory reservation must not exceed the default user memory quota")
+	}
+	if cfg.DefaultCPUReservation > CPUMillicores(cfg.DefaultUserQuotaCPU) {
+		return fmt.Errorf("default cpu reservation must not exceed the default user cpu quota")
+	}
+	if cfg.DefaultVolumeSizeBytes > mebibytesToBytes(cfg.DefaultUserQuotaDiskMB) {
+		return fmt.Errorf("default volume size must not exceed the default user disk quota")
 	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
@@ -142,11 +194,23 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeDeployWorkerCount <= 0 || cfg.ComposeOutboxIntervalSeconds <= 0 || cfg.ComposeOutboxBatchSize <= 0 || cfg.ComposeDeployMaxAttempts <= 0 {
 		return fmt.Errorf("compose queue and worker settings must be positive")
 	}
-	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
-		return fmt.Errorf("compose polling settings must be positive")
+	if cfg.ComposeDependencyWaitTimeoutMinutes <= 0 {
+		return fmt.Errorf("compose dependency wait timeout must be positive")
 	}
 	if cfg.ComposeCoordinatorIntervalSeconds <= 0 {
 		return fmt.Errorf("compose coordinator interval must be positive")
+	}
+	if cfg.VolumeUsageIntervalSeconds <= 0 || cfg.VolumeUsageCycleBudgetSeconds <= 0 {
+		return fmt.Errorf("volume usage interval and cycle budget must be positive")
+	}
+	if cfg.VolumeUsageScanEntryBudget <= 0 || cfg.VolumeUsageScanEntryBudget > MaxVolumeUsageScanEntryBudget {
+		return fmt.Errorf("volume usage scan entry budget must be between 1 and %d", MaxVolumeUsageScanEntryBudget)
+	}
+	if cfg.RegistryCleanupIntervalSeconds <= 0 || cfg.RegistryCleanupJobTimeoutSeconds <= 0 {
+		return fmt.Errorf("registry cleanup interval and job timeout must be positive")
+	}
+	if cfg.RegistryGCMaxDurationSeconds <= 0 {
+		return fmt.Errorf("registry gc max duration must be positive")
 	}
 	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
 		return fmt.Errorf("git source limits must be positive")
@@ -188,4 +252,14 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		return fmt.Errorf("telemetry command and websocket limits must be positive")
 	}
 	return nil
+}
+
+// mebibytesToBytes converts a quota in MB (MiB, as quotas are read) to bytes,
+// saturating instead of overflowing for a quota no host has.
+func mebibytesToBytes(mb int64) int64 {
+	const bytesPerMB = 1 << 20
+	if mb > math.MaxInt64/bytesPerMB {
+		return math.MaxInt64
+	}
+	return mb * bytesPerMB
 }

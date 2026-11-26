@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
 
@@ -39,6 +39,19 @@ func (s *ContainerService) refreshProjectStatus(ctx context.Context, projectID *
 	}
 }
 
+// Get returns one container the caller's scope may read. Another user's
+// container is reported as not found.
+func (s *ContainerService) Get(ctx context.Context, containerID uuid.UUID) (model.Container, error) {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return model.Container{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return model.Container{}, err
+	}
+	return c, nil
+}
+
 func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
@@ -54,11 +67,15 @@ func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) 
 		return model.ContainerStats{}, nil
 	}
 	stats, err := s.dockerAPI.GetContainerStats(ctx, c.DockerID)
-	if err != nil && isDockerNotFound(err) {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return model.ContainerStats{}, resourceUnavailableError("container")
+	if err != nil {
+		if isDockerNotFound(err) {
+			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+			return model.ContainerStats{}, resourceUnavailableError("container")
+		}
+		return model.ContainerStats{}, err
 	}
-	return stats, err
+	stats.MemoryStandardLimitBytes = containerResources(c, s.config.Get()).MemoryLimitBytes
+	return stats, nil
 }
 
 func (s *ContainerService) GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error) {

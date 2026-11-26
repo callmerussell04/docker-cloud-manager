@@ -3,31 +3,56 @@ package handler
 import (
 	"context"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
 
-type UserManagementService interface {
-	ListUsers(ctx context.Context, page, limit int) (model.PaginatedAdminUsers, error)
-	GetUser(ctx context.Context, userID string) (model.AdminUser, error)
+// UserDirectory changes users' accounts in SSO in ways that never deactivate
+// them.
+type UserDirectory interface {
 	CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error)
-	UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error)
-	DeactivateUser(ctx context.Context, userID string) (model.AdminUser, error)
 	ReactivateUser(ctx context.Context, userID string) (model.AdminUser, error)
 }
 
-type UserManagementHandler struct {
-	service UserManagementService
+// UserDeactivator makes the account changes that can deactivate a user in
+// SSO, and stops a deactivated user's workloads in Core.
+type UserDeactivator interface {
+	DeactivateUser(ctx context.Context, userID string) (model.UserDeactivation, error)
+	UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.UserUpdate, error)
 }
 
-func NewUserManagementHandler(service UserManagementService) *UserManagementHandler {
-	return &UserManagementHandler{service: service}
+// AdminUserService combines SSO's users with Core's quotas.
+type AdminUserService interface {
+	ListUsers(ctx context.Context, page, limit int) (model.PaginatedAdminUsersWithQuota, error)
+	GetUser(ctx context.Context, userID string) (model.AdminUserWithQuota, error)
+	SetUserQuota(ctx context.Context, userID string, limits model.UserQuotaLimits) (model.UserQuota, error)
+	ResetUserQuota(ctx context.Context, userID string) (model.UserQuota, error)
+}
+
+type UserManagementDeps struct {
+	Users        UserDirectory
+	AdminUsers   AdminUserService
+	Deactivation UserDeactivator
+	Audit        AuditRecorder
+}
+
+type UserManagementHandler struct {
+	users        UserDirectory
+	adminUsers   AdminUserService
+	deactivation UserDeactivator
+	audit        AuditRecorder
+}
+
+func NewUserManagementHandler(deps UserManagementDeps) *UserManagementHandler {
+	return &UserManagementHandler{users: deps.Users, adminUsers: deps.AdminUsers, deactivation: deps.Deactivation, audit: deps.Audit}
 }
 
 func (h *UserManagementHandler) ListUsers(c *gin.Context) {
@@ -36,14 +61,14 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	users, err := h.service.ListUsers(c.Request.Context(), page, limit)
+	users, err := h.adminUsers.ListUsers(c.Request.Context(), page, limit)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
 
 	c.JSON(http.StatusOK, dto.PaginatedAdminUsers{
-		Users:      usersToDTO(users.Users),
+		Users:      usersWithQuotaToDTO(users.Users),
 		TotalCount: users.TotalCount,
 	})
 }
@@ -54,12 +79,12 @@ func (h *UserManagementHandler) GetUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.GetUser(c.Request.Context(), userID)
+	user, err := h.adminUsers.GetUser(c.Request.Context(), userID)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, userToDTO(user))
+	c.JSON(http.StatusOK, userWithQuotaToDTO(user))
 }
 
 func (h *UserManagementHandler) CreateUser(c *gin.Context) {
@@ -72,23 +97,23 @@ func (h *UserManagementHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.CreateUser(c.Request.Context(), model.CreateUserInput{
-		Username:    req.Username,
-		Email:       req.Email,
-		Password:    req.Password,
-		Role:        req.Role,
-		Status:      req.Status,
-		QuotaCPU:    req.QuotaCPU,
-		QuotaRAMMB:  req.QuotaRAMMB,
-		QuotaDiskMB: req.QuotaDiskMB,
+	user, err := h.users.CreateUser(c.Request.Context(), model.CreateUserInput{
+		Username: req.Username,
+		Email:    req.Email,
+		Password: req.Password,
+		Role:     req.Role,
+		Status:   req.Status,
 	})
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusCreated, userToDTO(user))
+	c.JSON(http.StatusCreated, accountToDTO(user))
 }
 
+// UpdateUser saves the account. An update that leaves it deactivated is a
+// deactivation: it stops the user's workloads, is audited and answers as
+// DeactivateUser does, including 503 when Core could not stop them.
 func (h *UserManagementHandler) UpdateUser(c *gin.Context) {
 	userID, ok := pathUUID(c, "id")
 	if !ok {
@@ -104,34 +129,70 @@ func (h *UserManagementHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.UpdateUser(c.Request.Context(), userID, model.UpdateUserInput{
-		Username:    req.Username,
-		Email:       req.Email,
-		Password:    req.Password,
-		Role:        req.Role,
-		Status:      req.Status,
-		QuotaCPU:    req.QuotaCPU,
-		QuotaRAMMB:  req.QuotaRAMMB,
-		QuotaDiskMB: req.QuotaDiskMB,
+	update, err := h.deactivation.UpdateUser(c.Request.Context(), userID, model.UpdateUserInput{
+		Username: req.Username,
+		Email:    req.Email,
+		Password: req.Password,
+		Role:     req.Role,
+		Status:   req.Status,
 	})
+	if update.Deactivated {
+		h.recordDeactivation(c, userID, update.Workloads, err)
+	}
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, userToDTO(user))
+	resp := dto.AdminUserUpdateDTO{AdminUserAccountDTO: accountToDTO(update.User)}
+	if update.Deactivated {
+		workloads := workloadsToDTO(update.Workloads)
+		resp.Workloads = &workloads
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
+// recordDeactivation audits a deactivation and, when it succeeded, what
+// happened to the user's workloads.
+func (h *UserManagementHandler) recordDeactivation(c *gin.Context, userID string, workloads model.WorkloadSuspension, err error) {
+	outcome, errorCode := auditOutcome(err)
+	details := "{}"
+	if err == nil {
+		details = auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailStoppedContainers:   auditlog.IntDetail(workloads.StoppedContainers),
+			auditlog.DetailCanceledBuilds:      auditlog.IntDetail(workloads.CanceledBuilds),
+			auditlog.DetailCanceledDeployments: auditlog.IntDetail(workloads.CanceledDeployments),
+			auditlog.DetailRemainingWorkloads:  auditlog.IntDetail(workloads.Remaining()),
+		})
+	}
+	recordAudit(c, h.audit, auditInput{
+		Action:       auditlog.ActionUserAdminDeactivate,
+		ResourceType: auditlog.ResourceUser,
+		ResourceID:   userID,
+		OwnerID:      userID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+		DetailsJSON:  details,
+	})
+}
+
+// DeactivateUser deactivates the user in SSO, then stops their workloads in
+// Core. A Core failure is 503 for an account already deactivated; repeating
+// the request is safe.
 func (h *UserManagementHandler) DeactivateUser(c *gin.Context) {
 	userID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
-	user, err := h.service.DeactivateUser(c.Request.Context(), userID)
+	deactivation, err := h.deactivation.DeactivateUser(c.Request.Context(), userID)
+	h.recordDeactivation(c, userID, deactivation.Workloads, err)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, userToDTO(user))
+	c.JSON(http.StatusOK, dto.AdminUserDeactivationDTO{
+		AdminUserAccountDTO: accountToDTO(deactivation.User),
+		Workloads:           workloadsToDTO(deactivation.Workloads),
+	})
 }
 
 func (h *UserManagementHandler) ReactivateUser(c *gin.Context) {
@@ -139,12 +200,12 @@ func (h *UserManagementHandler) ReactivateUser(c *gin.Context) {
 	if !ok {
 		return
 	}
-	user, err := h.service.ReactivateUser(c.Request.Context(), userID)
+	user, err := h.users.ReactivateUser(c.Request.Context(), userID)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, userToDTO(user))
+	c.JSON(http.StatusOK, accountToDTO(user))
 }
 
 func validateUserRequest(c *gin.Context, username, role, status string) bool {
@@ -167,23 +228,130 @@ func validateUserRequest(c *gin.Context, username, role, status string) bool {
 	return true
 }
 
-func usersToDTO(users []model.AdminUser) []dto.AdminUserDTO {
+// SetUserQuota gives the user a custom quota. Lowering it below what the
+// user already reserves stops nothing; it applies from their next admission.
+func (h *UserManagementHandler) SetUserQuota(c *gin.Context) {
+	userID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.SetUserQuotaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, "quota_cpu, quota_ram_mb and quota_disk_mb are required numbers")
+		return
+	}
+	// The message never repeats the rejected value.
+	if *req.QuotaCPU <= 0 || *req.QuotaRAMMB <= 0 || *req.QuotaDiskMB <= 0 {
+		badRequest(c, "quota_cpu, quota_ram_mb and quota_disk_mb must be positive")
+		return
+	}
+
+	quota, err := h.adminUsers.SetUserQuota(c.Request.Context(), userID, model.UserQuotaLimits{
+		CPU:    *req.QuotaCPU,
+		RAMMB:  *req.QuotaRAMMB,
+		DiskMB: *req.QuotaDiskMB,
+	})
+	outcome, errorCode := auditOutcome(err)
+	details := "{}"
+	if err == nil {
+		details = auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailQuotaCPU:    strconv.FormatFloat(quota.CPU, 'f', -1, 64),
+			auditlog.DetailQuotaRAMMB:  strconv.FormatInt(quota.RAMMB, 10),
+			auditlog.DetailQuotaDiskMB: strconv.FormatInt(quota.DiskMB, 10),
+		})
+	}
+	recordAudit(c, h.audit, auditInput{
+		Action:       auditlog.ActionUserQuotaSet,
+		ResourceType: auditlog.ResourceUser,
+		ResourceID:   userID,
+		OwnerID:      userID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+		DetailsJSON:  details,
+	})
+	if err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, quotaToDTO(quota))
+}
+
+// ResetUserQuota returns the user to the default quota.
+func (h *UserManagementHandler) ResetUserQuota(c *gin.Context) {
+	userID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	quota, err := h.adminUsers.ResetUserQuota(c.Request.Context(), userID)
+	outcome, errorCode := auditOutcome(err)
+	recordAudit(c, h.audit, auditInput{
+		Action:       auditlog.ActionUserQuotaReset,
+		ResourceType: auditlog.ResourceUser,
+		ResourceID:   userID,
+		OwnerID:      userID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
+	if err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
+		return
+	}
+	c.JSON(http.StatusOK, quotaToDTO(quota))
+}
+
+func usersWithQuotaToDTO(users []model.AdminUserWithQuota) []dto.AdminUserDTO {
 	resp := make([]dto.AdminUserDTO, 0, len(users))
 	for _, user := range users {
-		resp = append(resp, userToDTO(user))
+		resp = append(resp, userWithQuotaToDTO(user))
 	}
 	return resp
 }
 
-func userToDTO(user model.AdminUser) dto.AdminUserDTO {
+func userWithQuotaToDTO(user model.AdminUserWithQuota) dto.AdminUserDTO {
 	return dto.AdminUserDTO{
-		UserID:      user.UserID,
-		Username:    user.Username,
-		Email:       user.Email,
-		Role:        user.Role,
-		Status:      user.Status,
-		QuotaCPU:    user.QuotaCPU,
-		QuotaRAMMB:  user.QuotaRAMMB,
-		QuotaDiskMB: user.QuotaDiskMB,
+		UserID:     user.User.UserID,
+		Username:   user.User.Username,
+		Email:      user.User.Email,
+		Role:       user.User.Role,
+		Status:     user.User.Status,
+		AuthSource: user.User.AuthSource,
+
+		RoleManagedByProvider: user.User.RoleManagedByProvider,
+		QuotaCPU:              user.Quota.CPU,
+		QuotaRAMMB:            user.Quota.RAMMB,
+		QuotaDiskMB:           user.Quota.DiskMB,
+		QuotaCustom:           user.Quota.Custom,
+	}
+}
+
+func accountToDTO(user model.AdminUser) dto.AdminUserAccountDTO {
+	return dto.AdminUserAccountDTO{
+		UserID:   user.UserID,
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     user.Role,
+		Status:   user.Status,
+
+		AuthSource:            user.AuthSource,
+		RoleManagedByProvider: user.RoleManagedByProvider,
+	}
+}
+
+func workloadsToDTO(workloads model.WorkloadSuspension) dto.WorkloadSuspensionDTO {
+	return dto.WorkloadSuspensionDTO{
+		StoppedContainers:   workloads.StoppedContainers,
+		CanceledBuilds:      workloads.CanceledBuilds,
+		CanceledDeployments: workloads.CanceledDeployments,
+		Remaining:           workloads.Remaining(),
+	}
+}
+
+func quotaToDTO(quota model.UserQuota) dto.UserQuotaDTO {
+	return dto.UserQuotaDTO{
+		UserID:      quota.UserID,
+		QuotaCPU:    quota.CPU,
+		QuotaRAMMB:  quota.RAMMB,
+		QuotaDiskMB: quota.DiskMB,
+		QuotaCustom: quota.Custom,
 	}
 }

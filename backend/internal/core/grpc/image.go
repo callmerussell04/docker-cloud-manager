@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type ImageLogic interface {
@@ -90,11 +90,12 @@ func imageToProto(img model.Image, ownerUsername string) *coreapi.ImageData {
 	return &coreapi.ImageData{
 		Id:            img.ID.String(),
 		Tag:           img.Tag,
-		SizeMb:        int32(img.SizeMB),
+		SizeBytes:     img.SizeBytes,
 		CreatedAt:     img.CreatedAt.Unix(),
 		OwnerId:       img.OwnerID.String(),
 		OwnerUsername: ownerUsername,
 		Status:        img.Status,
 		LastError:     stringValue(img.LastError),
+		UsedBy:        containerRefsToProto(img.UsedBy),
 	}
 }

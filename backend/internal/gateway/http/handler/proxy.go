@@ -10,16 +10,16 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/gin-gonic/gin"
 )
 
 type ProxyOptions struct {
 	TargetURL      string
-	InternalToken  string
+	ServiceToken   string
 	Transport      http.RoundTripper
 	AllowedOrigins []string
 }
@@ -31,7 +31,7 @@ func NewCoreProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {
 	}
 
 	return func(c *gin.Context) {
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -54,7 +54,7 @@ func NewTelemetryLogsProxyHandler(opts ProxyOptions, auth TelemetryProxyAuthOpti
 			return
 		}
 		clearWriteDeadline(c)
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -77,7 +77,7 @@ func NewTelemetryTerminalProxyHandler(opts ProxyOptions, auth TelemetryProxyAuth
 			return
 		}
 		clearWriteDeadline(c)
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -95,10 +95,10 @@ func newGatewayProxy(opts ProxyOptions) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
-func prepareProxyRequest(c *gin.Context, internalToken string) {
+func prepareProxyRequest(c *gin.Context, serviceToken string) {
 	clearProxyIdentityHeaders(c.Request.Header)
 	internalauth.SetScopeHeadersFromContext(c.Request.Header, c.Request.Context())
-	c.Request.Header.Set(internalauth.HeaderName, internalToken)
+	c.Request.Header.Set(internalauth.HeaderName, serviceToken)
 	if requestID := logging.RequestIDFromContext(c.Request.Context()); requestID != "" {
 		c.Request.Header.Set(logging.RequestIDHeader, requestID)
 	}
@@ -129,7 +129,7 @@ func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 
 	rw.Header().Set("Content-Type", "application/json; charset=utf-8")
 	rw.WriteHeader(statusCode)
-	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{
+	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{ // headers are sent; a failed body write means the client left
 		Error:     apperrors.SafeMessage(appErr),
 		ErrorCode: apperrors.Code(appErr),
 		RequestID: logging.RequestIDFromContext(req.Context()),
@@ -137,5 +137,5 @@ func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 }
 
 func clearWriteDeadline(c *gin.Context) {
-	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{}) // writers without deadline support keep the server default
 }

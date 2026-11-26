@@ -3,4 +3,3 @@ DROP TYPE IF EXISTS auth_source;
 DROP TYPE IF EXISTS user_status;
 DROP TYPE IF EXISTS user_role;
 DROP EXTENSION IF EXISTS pgcrypto;
-

@@ -3,26 +3,25 @@ package dto
 type ImageDTO struct {
 	ID            string `json:"id"`
 	Tag           string `json:"tag"`
-	SizeMB        int32  `json:"size_mb"`
+	SizeBytes     int64  `json:"size_bytes"`
 	Status        string `json:"status"`
 	LastError     string `json:"last_error"`
 	CreatedAt     int64  `json:"created_at"`
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`
+	// UsedBy names the containers created from the image; never null.
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type UserImageDTO struct {
 	ID        string `json:"id"`
 	Tag       string `json:"tag"`
-	SizeMB    int32  `json:"size_mb"`
+	SizeBytes int64  `json:"size_bytes"`
 	Status    string `json:"status"`
 	LastError string `json:"last_error"`
 	CreatedAt int64  `json:"created_at"`
-}
-
-type RegisterImageDTO struct {
-	Tag    string `json:"tag" binding:"required"`
-	SizeMB int    `json:"size_mb" binding:"required,min=1"`
+	// UsedBy names the containers created from the image; never null.
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type PaginatedImages struct {

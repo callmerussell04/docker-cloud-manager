@@ -1,0 +1,64 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { PageParams } from '@/shared/api/pagination';
+import { queryRoots } from '@/shared/api/queryRoots';
+import type { Scope } from '@/shared/api/scope';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { createVolumeFn, deleteVolumeFn, getVolumesFn } from './api';
+import { isVolumeBusy } from './model';
+
+export const volumeKeys = {
+  all: ['volumes'] as const,
+  lists: (scope: Scope) => [...volumeKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...volumeKeys.lists(scope), params] as const,
+};
+
+export function useVolumes<S extends Scope>(scope: S, page: number, limit: number, enabled = true) {
+  return useQuery({
+    queryKey: volumeKeys.list(scope, { page, limit }),
+    queryFn: () => getVolumesFn(scope, page, limit),
+    enabled,
+    refetchInterval: (query) => {
+      const volumes = query.state.data?.items || [];
+      return enabled && volumes.some((volume) => isVolumeBusy(volume.status)) ? 5000 : false;
+    },
+  });
+}
+
+export function useCreateVolume() {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: createVolumeFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: volumeKeys.all });
+      // The volume's size counts against the disk quota the dashboard shows.
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
+      notify(t('volumes.created'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('volumes.createFailed'), 'error', failureReason(error, t));
+    },
+  });
+}
+
+export function useDeleteVolume(scope: Scope) {
+  const queryClient = useQueryClient();
+  const notify = useNotificationStore((state) => state.notify);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: (id: string) => deleteVolumeFn({ scope, id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: volumeKeys.all });
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
+      notify(t(scope === 'all' ? 'admin.resources.volumeDeleted' : 'volumes.deleted'), 'success');
+    },
+    onError: (error: unknown) => {
+      notify(t('volumes.deleteFailed'), 'error', failureReason(error, t));
+    },
+  });
+}

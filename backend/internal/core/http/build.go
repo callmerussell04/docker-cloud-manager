@@ -3,16 +3,18 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 )
 
 type BuildUseCases interface {
@@ -27,6 +29,10 @@ type BuildHandler struct {
 }
 
 const maxBuildFormFieldBytes = 1 << 20
+
+// buildFormOverheadBytes is what a build upload may carry beside its archive:
+// the four form fields at their individual limit, and the multipart framing.
+const buildFormOverheadBytes = 4*maxBuildFormFieldBytes + 64<<10
 const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
 const gitSourcesUnavailableMessage = "Git sources are currently unavailable. Upload an archive instead."
 
@@ -35,7 +41,7 @@ func NewBuildHandler(builds BuildUseCases, cfg ConfigProvider) *BuildHandler {
 }
 
 func (h *BuildHandler) BuildImage(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().MaxUploadSizeBytes)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().MaxArchiveSizeBytes+buildFormOverheadBytes)
 
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
@@ -47,7 +53,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 	buildArgs := make(map[string]string)
 	for {
 		part, err := reader.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -58,7 +64,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		name := part.FormName()
 		if name == "archive" {
 			if tag == "" || part.FileName() == "" {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the request is rejected
 				err := apperrors.New(apperrors.ErrBadRequest, "build metadata fields must be sent before archive")
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
@@ -72,11 +78,11 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 				Archive:     part,
 			})
 			if err != nil {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the build error is returned
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
 			}
-			_ = part.Close()
+			_ = part.Close() // read-only multipart part, already consumed
 			c.JSON(http.StatusAccepted, gin.H{
 				"build_id": result.BuildID.String(),
 				"message":  "build initialized",
@@ -85,7 +91,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		}
 
 		value, err := readLimitedFormField(part, maxBuildFormFieldBytes)
-		_ = part.Close()
+		_ = part.Close() // read-only multipart part; the read result decides the outcome
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
@@ -168,11 +174,14 @@ func (h *BuildHandler) BuildLogs(c *gin.Context) {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	defer logReader.Close()
+	defer func() { _ = logReader.Close() }() // read-only stream; close failure is not actionable
 
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Status(http.StatusOK)
-	_, _ = io.Copy(c.Writer, logReader)
+	if _, err := io.Copy(c.Writer, logReader); err != nil {
+		// The status is already sent, so the failure goes to the access log.
+		_ = c.Error(fmt.Errorf("stream build log: %w", err)) // c.Error returns its argument
+	}
 }
 
 func readLimitedFormField(r io.Reader, maxBytes int64) ([]byte, error) {

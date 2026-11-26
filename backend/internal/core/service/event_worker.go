@@ -6,17 +6,15 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
 type EventContainerRepo interface {
-	UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error
-	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
 	UpdateObservedStatus(ctx context.Context, id uuid.UUID, status string, exitCode *int, desiredStatus *string, cause error) error
 	UpdateObservedStatusByDockerID(ctx context.Context, dockerID string, status string, exitCode *int, desiredStatus *string, cause error) error
 	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
@@ -39,10 +37,6 @@ type EventVolumeRepo interface {
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
-type ContainerRebalancer interface {
-	RequestRebalance()
-}
-
 type EventProjectStatusUpdater interface {
 	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
 }
@@ -55,18 +49,16 @@ type EventWorker struct {
 	repo       EventContainerRepo
 	volumeRepo EventVolumeRepo
 	dockerAPI  EventDockerAPI
-	rebalancer ContainerRebalancer
 	projects   EventProjectStatusUpdater
 	cfg        EventConfigProvider
 	logger     *slog.Logger
 }
 
-func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, projects EventProjectStatusUpdater, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
+func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, projects EventProjectStatusUpdater, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
 	return &EventWorker{
 		repo:       repo,
 		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
-		rebalancer: rebalancer,
 		projects:   projects,
 		cfg:        cfg,
 		logger:     logging.WithComponent(logger, "event_worker"),
@@ -82,6 +74,15 @@ func (w *EventWorker) Run(ctx context.Context) {
 
 	var msgCh <-chan model.ContainerEvent
 	var errCh <-chan error
+	var cancelSubscription context.CancelFunc
+	releaseSubscription := func() {
+		if cancelSubscription != nil {
+			cancelSubscription()
+			cancelSubscription = nil
+		}
+		msgCh, errCh = nil, nil
+	}
+	defer releaseSubscription()
 	reconnectAt := time.NewTimer(0)
 	defer reconnectAt.Stop()
 
@@ -94,38 +95,37 @@ func (w *EventWorker) Run(ctx context.Context) {
 			w.syncState(ctx)
 			resetTicker(syncTicker, time.Duration(w.cfg.Get().EventSyncIntervalSeconds)*time.Second)
 		case <-reconnectAt.C:
-			msgCh, errCh = w.dockerAPI.ListenEvents(ctx)
+			subscriptionCtx, cancel := context.WithCancel(ctx)
+			cancelSubscription = cancel
+			msgCh, errCh = w.dockerAPI.ListenEvents(subscriptionCtx)
 		case err, ok := <-errCh:
 			if !ok {
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}
 			if err != nil {
 				w.logger.ErrorContext(ctx, "docker event stream error", "error", err)
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 			}
 		case msg, ok := <-msgCh:
 			if !ok {
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}
 			if msg.Type == "container" {
 				switch msg.Action {
 				case "start":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, observedContainerState{status: model.ContainerStatusRunning})
+					w.recordContainerEvent(ctx, msg, observedContainerState{status: model.ContainerStatusRunning})
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, observedStateFromExitEvent(msg))
+					w.recordContainerEvent(ctx, msg, observedStateFromExitEvent(msg))
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				case "destroy":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, observedContainerState{status: model.ContainerStatusMissing, cause: resourceMissingError("container")})
+					w.recordContainerEvent(ctx, msg, observedContainerState{status: model.ContainerStatusMissing, cause: resourceMissingError("container")})
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				}
 			}
 		}
@@ -190,8 +190,29 @@ func observedStateFromInspect(c model.Container, inspect model.ContainerInspecti
 	return state
 }
 
+// recordContainerEvent records the status a Docker event reports. A failed
+// write is logged; the next sync corrects the status from Docker.
+func (w *EventWorker) recordContainerEvent(ctx context.Context, msg model.ContainerEvent, state observedContainerState) {
+	err := w.updateContainerStatusFromEvent(ctx, msg, state)
+	// Events can name containers DCM no longer records, such as the destroy
+	// that follows a deletion.
+	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		w.logger.WarnContext(ctx, "failed to record container event status", "docker_id", msg.DockerID, "status", state.status, "error", err)
+	}
+}
+
 func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg model.ContainerEvent, state observedContainerState) error {
-	state = w.adjustExpectedExitState(ctx, msg, state)
+	if msg.DockerID != "" {
+		if container, err := w.repo.GetByDockerID(ctx, msg.DockerID); err == nil {
+			// The expose operation stops and may restart the generation it
+			// replaces, and records the status of the generation it settles
+			// on; those events would overwrite it.
+			if container.Status == model.ContainerStatusExposing {
+				return nil
+			}
+			state = adjustExpectedExitState(container, state)
+		}
+	}
 	err := w.repo.UpdateObservedStatusByDockerID(ctx, msg.DockerID, state.status, state.exitCode, state.desiredStatus, state.cause)
 	if err == nil || !errors.Is(err, apperrors.ErrNotFound) {
 		return err
@@ -206,15 +227,10 @@ func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg mo
 	return w.repo.UpdateObservedStatusByContainerIDAndGeneration(ctx, containerID, msg.Generation, state.status, state.exitCode, state.desiredStatus, state.cause)
 }
 
-func (w *EventWorker) adjustExpectedExitState(ctx context.Context, msg model.ContainerEvent, state observedContainerState) observedContainerState {
-	if state.cause == nil || msg.DockerID == "" {
-		return state
-	}
-	container, err := w.repo.GetByDockerID(ctx, msg.DockerID)
-	if err != nil {
-		return state
-	}
-	if !expectedContainerExit(container.DesiredStatus) {
+// adjustExpectedExitState records a failed exit as a plain exit when the
+// container was meant to stop.
+func adjustExpectedExitState(container model.Container, state observedContainerState) observedContainerState {
+	if state.cause == nil || !expectedContainerExit(container.DesiredStatus) {
 		return state
 	}
 	state.status = model.ContainerStatusExited
@@ -237,8 +253,6 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 		w.logger.ErrorContext(ctx, "failed to fetch non-exited containers", "error", err)
 		return
 	}
-
-	changed := false
 
 	for _, c := range containers {
 		if containerStatusHasActiveLifecycle(c.Status) {
@@ -263,18 +277,19 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 			if active {
 				continue
 			}
-			_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
-			w.logger.WarnContext(ctx, "container has empty docker id", "container_id", c.ID)
+			if w.recordContainerStatus(ctx, c.ID, model.ContainerStatusMissing, w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))) {
+				w.logger.WarnContext(ctx, "container has empty docker id", "container_id", c.ID)
+			}
 			continue
 		}
 
 		inspect, err := w.dockerAPI.InspectContainer(ctx, c.DockerID)
 		if err != nil {
 			if cerrdefs.IsNotFound(err) {
-				_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
-				w.logger.WarnContext(ctx, "docker container missing during state sync", "container_id", c.ID, "docker_id", c.DockerID)
-				w.refreshProjectStatus(ctx, c.ProjectID)
-				changed = true
+				if w.recordContainerStatus(ctx, c.ID, model.ContainerStatusMissing, w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))) {
+					w.logger.WarnContext(ctx, "docker container missing during state sync", "container_id", c.ID, "docker_id", c.DockerID)
+					w.refreshProjectStatus(ctx, c.ProjectID)
+				}
 			}
 			continue
 		}
@@ -283,20 +298,35 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 		expectedStatus := observed.status
 
 		if c.Status != expectedStatus {
-			_ = w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause)
+			if !w.recordContainerStatus(ctx, c.ID, expectedStatus, w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause)) {
+				continue
+			}
 			w.logger.InfoContext(ctx, "container status synced", "container_id", c.ID, "old_status", c.Status, "new_status", expectedStatus)
 			w.refreshProjectStatus(ctx, c.ProjectID)
-			if expectedStatus == model.ContainerStatusRunning || c.Status == model.ContainerStatusRunning {
-				changed = true
-			}
 		} else if observed.desiredStatus != nil && c.DesiredStatus != *observed.desiredStatus {
-			_ = w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause)
+			w.recordContainerStatus(ctx, c.ID, expectedStatus, w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause))
 		}
 	}
+}
 
-	if changed {
-		w.rebalancer.RequestRebalance()
+// recordContainerStatus reports whether a sync status write succeeded, logging
+// a failure; the next sync retries it.
+func (w *EventWorker) recordContainerStatus(ctx context.Context, containerID uuid.UUID, status string, err error) bool {
+	if err != nil {
+		w.logger.WarnContext(ctx, "failed to record container status", "container_id", containerID, "status", status, "error", err)
+		return false
 	}
+	return true
+}
+
+// recordVolumeStatus reports whether a sync status write succeeded, logging a
+// failure; the next sync retries it.
+func (w *EventWorker) recordVolumeStatus(ctx context.Context, volumeID uuid.UUID, status string, err error) bool {
+	if err != nil {
+		w.logger.WarnContext(ctx, "failed to record volume status", "volume_id", volumeID, "status", status, "error", err)
+		return false
+	}
+	return true
 }
 
 func containerStatusHasActiveLifecycle(status string) bool {
@@ -351,21 +381,23 @@ func (w *EventWorker) syncVolumes(ctx context.Context) {
 
 	for _, v := range volumes {
 		if v.DockerName == "" {
-			_ = w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))
-			w.logger.WarnContext(ctx, "volume has empty docker name", "volume_id", v.ID)
+			if w.recordVolumeStatus(ctx, v.ID, model.VolumeStatusMissing, w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))) {
+				w.logger.WarnContext(ctx, "volume has empty docker name", "volume_id", v.ID)
+			}
 			continue
 		}
 
 		if _, err := w.dockerAPI.InspectVolume(ctx, v.DockerName); err != nil {
 			if cerrdefs.IsNotFound(err) {
-				_ = w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))
-				w.logger.WarnContext(ctx, "docker volume missing during state sync", "volume_id", v.ID, "docker_name", v.DockerName)
+				if w.recordVolumeStatus(ctx, v.ID, model.VolumeStatusMissing, w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))) {
+					w.logger.WarnContext(ctx, "docker volume missing during state sync", "volume_id", v.ID, "docker_name", v.DockerName)
+				}
 			}
 			continue
 		}
 
 		if v.Status == model.VolumeStatusCreating {
-			_ = w.volumeRepo.UpdateStatus(ctx, v.ID, model.VolumeStatusAvailable)
+			w.recordVolumeStatus(ctx, v.ID, model.VolumeStatusAvailable, w.volumeRepo.UpdateStatus(ctx, v.ID, model.VolumeStatusAvailable))
 		}
 	}
 }

@@ -19,14 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContainerAPI_CreateContainer_FullMethodName           = "/core.ContainerAPI/CreateContainer"
-	ContainerAPI_StartContainer_FullMethodName            = "/core.ContainerAPI/StartContainer"
-	ContainerAPI_StopContainer_FullMethodName             = "/core.ContainerAPI/StopContainer"
-	ContainerAPI_DeleteContainer_FullMethodName           = "/core.ContainerAPI/DeleteContainer"
-	ContainerAPI_ListContainers_FullMethodName            = "/core.ContainerAPI/ListContainers"
-	ContainerAPI_ExposeContainer_FullMethodName           = "/core.ContainerAPI/ExposeContainer"
-	ContainerAPI_GetContainerStats_FullMethodName         = "/core.ContainerAPI/GetContainerStats"
-	ContainerAPI_GetContainerRuntimeTarget_FullMethodName = "/core.ContainerAPI/GetContainerRuntimeTarget"
+	ContainerAPI_CreateContainer_FullMethodName   = "/core.ContainerAPI/CreateContainer"
+	ContainerAPI_StartContainer_FullMethodName    = "/core.ContainerAPI/StartContainer"
+	ContainerAPI_StopContainer_FullMethodName     = "/core.ContainerAPI/StopContainer"
+	ContainerAPI_DeleteContainer_FullMethodName   = "/core.ContainerAPI/DeleteContainer"
+	ContainerAPI_ListContainers_FullMethodName    = "/core.ContainerAPI/ListContainers"
+	ContainerAPI_GetContainer_FullMethodName      = "/core.ContainerAPI/GetContainer"
+	ContainerAPI_ExposeContainer_FullMethodName   = "/core.ContainerAPI/ExposeContainer"
+	ContainerAPI_GetContainerStats_FullMethodName = "/core.ContainerAPI/GetContainerStats"
 )
 
 // ContainerAPIClient is the client API for ContainerAPI service.
@@ -37,10 +37,10 @@ type ContainerAPIClient interface {
 	StartContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
-	ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
+	ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
+	GetContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerData, error)
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
-	GetContainerRuntimeTarget(ctx context.Context, in *ContainerRuntimeTargetRequest, opts ...grpc.CallOption) (*ContainerRuntimeTarget, error)
 }
 
 type containerAPIClient struct {
@@ -91,10 +91,20 @@ func (c *containerAPIClient) DeleteContainer(ctx context.Context, in *ContainerA
 	return out, nil
 }
 
-func (c *containerAPIClient) ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error) {
+func (c *containerAPIClient) ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaginatedContainerResponse)
 	err := c.cc.Invoke(ctx, ContainerAPI_ListContainers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *containerAPIClient) GetContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContainerData)
+	err := c.cc.Invoke(ctx, ContainerAPI_GetContainer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -121,16 +131,6 @@ func (c *containerAPIClient) GetContainerStats(ctx context.Context, in *Containe
 	return out, nil
 }
 
-func (c *containerAPIClient) GetContainerRuntimeTarget(ctx context.Context, in *ContainerRuntimeTargetRequest, opts ...grpc.CallOption) (*ContainerRuntimeTarget, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ContainerRuntimeTarget)
-	err := c.cc.Invoke(ctx, ContainerAPI_GetContainerRuntimeTarget_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ContainerAPIServer is the server API for ContainerAPI service.
 // All implementations must embed UnimplementedContainerAPIServer
 // for forward compatibility.
@@ -139,10 +139,10 @@ type ContainerAPIServer interface {
 	StartContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	StopContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error)
-	ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
+	ListContainers(context.Context, *ListContainersRequest) (*PaginatedContainerResponse, error)
+	GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error)
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
-	GetContainerRuntimeTarget(context.Context, *ContainerRuntimeTargetRequest) (*ContainerRuntimeTarget, error)
 	mustEmbedUnimplementedContainerAPIServer()
 }
 
@@ -165,17 +165,17 @@ func (UnimplementedContainerAPIServer) StopContainer(context.Context, *Container
 func (UnimplementedContainerAPIServer) DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteContainer not implemented")
 }
-func (UnimplementedContainerAPIServer) ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error) {
+func (UnimplementedContainerAPIServer) ListContainers(context.Context, *ListContainersRequest) (*PaginatedContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListContainers not implemented")
+}
+func (UnimplementedContainerAPIServer) GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainer not implemented")
 }
 func (UnimplementedContainerAPIServer) ExposeContainer(context.Context, *ExposeRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExposeContainer not implemented")
 }
 func (UnimplementedContainerAPIServer) GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetContainerStats not implemented")
-}
-func (UnimplementedContainerAPIServer) GetContainerRuntimeTarget(context.Context, *ContainerRuntimeTargetRequest) (*ContainerRuntimeTarget, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetContainerRuntimeTarget not implemented")
 }
 func (UnimplementedContainerAPIServer) mustEmbedUnimplementedContainerAPIServer() {}
 func (UnimplementedContainerAPIServer) testEmbeddedByValue()                      {}
@@ -271,7 +271,7 @@ func _ContainerAPI_DeleteContainer_Handler(srv interface{}, ctx context.Context,
 }
 
 func _ContainerAPI_ListContainers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PaginationRequest)
+	in := new(ListContainersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -283,7 +283,25 @@ func _ContainerAPI_ListContainers_Handler(srv interface{}, ctx context.Context, 
 		FullMethod: ContainerAPI_ListContainers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ContainerAPIServer).ListContainers(ctx, req.(*PaginationRequest))
+		return srv.(ContainerAPIServer).ListContainers(ctx, req.(*ListContainersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContainerAPI_GetContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).GetContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_GetContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).GetContainer(ctx, req.(*ContainerActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -324,24 +342,6 @@ func _ContainerAPI_GetContainerStats_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ContainerAPI_GetContainerRuntimeTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ContainerRuntimeTargetRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ContainerAPIServer).GetContainerRuntimeTarget(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ContainerAPI_GetContainerRuntimeTarget_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ContainerAPIServer).GetContainerRuntimeTarget(ctx, req.(*ContainerRuntimeTargetRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ContainerAPI_ServiceDesc is the grpc.ServiceDesc for ContainerAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -370,16 +370,16 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ContainerAPI_ListContainers_Handler,
 		},
 		{
+			MethodName: "GetContainer",
+			Handler:    _ContainerAPI_GetContainer_Handler,
+		},
+		{
 			MethodName: "ExposeContainer",
 			Handler:    _ContainerAPI_ExposeContainer_Handler,
 		},
 		{
 			MethodName: "GetContainerStats",
 			Handler:    _ContainerAPI_GetContainerStats_Handler,
-		},
-		{
-			MethodName: "GetContainerRuntimeTarget",
-			Handler:    _ContainerAPI_GetContainerRuntimeTarget_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -972,6 +972,7 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	ProjectAPI_ListProjects_FullMethodName  = "/core.ProjectAPI/ListProjects"
+	ProjectAPI_GetProject_FullMethodName    = "/core.ProjectAPI/GetProject"
 	ProjectAPI_DeleteProject_FullMethodName = "/core.ProjectAPI/DeleteProject"
 	ProjectAPI_StartProject_FullMethodName  = "/core.ProjectAPI/StartProject"
 	ProjectAPI_StopProject_FullMethodName   = "/core.ProjectAPI/StopProject"
@@ -983,6 +984,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProjectAPIClient interface {
 	ListProjects(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedProjectResponse, error)
+	GetProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*ProjectData, error)
 	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -1001,6 +1003,16 @@ func (c *projectAPIClient) ListProjects(ctx context.Context, in *PaginationReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaginatedProjectResponse)
 	err := c.cc.Invoke(ctx, ProjectAPI_ListProjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) GetProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*ProjectData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectData)
+	err := c.cc.Invoke(ctx, ProjectAPI_GetProject_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,6 +1064,7 @@ func (c *projectAPIClient) CancelProject(ctx context.Context, in *ProjectActionR
 // for forward compatibility.
 type ProjectAPIServer interface {
 	ListProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error)
+	GetProject(context.Context, *ProjectActionRequest) (*ProjectData, error)
 	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StartProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StopProject(context.Context, *ProjectActionRequest) (*Empty, error)
@@ -1068,6 +1081,9 @@ type UnimplementedProjectAPIServer struct{}
 
 func (UnimplementedProjectAPIServer) ListProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListProjects not implemented")
+}
+func (UnimplementedProjectAPIServer) GetProject(context.Context, *ProjectActionRequest) (*ProjectData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetProject not implemented")
 }
 func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
@@ -1116,6 +1132,24 @@ func _ProjectAPI_ListProjects_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ProjectAPIServer).ListProjects(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectAPI_GetProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).GetProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_GetProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).GetProject(ctx, req.(*ProjectActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1204,6 +1238,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProjectAPI_ListProjects_Handler,
 		},
 		{
+			MethodName: "GetProject",
+			Handler:    _ProjectAPI_GetProject_Handler,
+		},
+		{
 			MethodName: "DeleteProject",
 			Handler:    _ProjectAPI_DeleteProject_Handler,
 		},
@@ -1225,10 +1263,9 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SystemAPI_GetConfig_FullMethodName                 = "/core.SystemAPI/GetConfig"
-	SystemAPI_UpdateConfig_FullMethodName              = "/core.SystemAPI/UpdateConfig"
-	SystemAPI_GetBuilderRuntimeConfig_FullMethodName   = "/core.SystemAPI/GetBuilderRuntimeConfig"
-	SystemAPI_GetTelemetryRuntimeConfig_FullMethodName = "/core.SystemAPI/GetTelemetryRuntimeConfig"
+	SystemAPI_GetConfig_FullMethodName               = "/core.SystemAPI/GetConfig"
+	SystemAPI_UpdateConfig_FullMethodName            = "/core.SystemAPI/UpdateConfig"
+	SystemAPI_GetBuilderRuntimeConfig_FullMethodName = "/core.SystemAPI/GetBuilderRuntimeConfig"
 )
 
 // SystemAPIClient is the client API for SystemAPI service.
@@ -1238,7 +1275,6 @@ type SystemAPIClient interface {
 	GetConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemConfigData, error)
 	UpdateConfig(ctx context.Context, in *SystemConfigData, opts ...grpc.CallOption) (*Empty, error)
 	GetBuilderRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BuilderRuntimeConfigData, error)
-	GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error)
 }
 
 type systemAPIClient struct {
@@ -1279,16 +1315,6 @@ func (c *systemAPIClient) GetBuilderRuntimeConfig(ctx context.Context, in *Empty
 	return out, nil
 }
 
-func (c *systemAPIClient) GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TelemetryRuntimeConfigData)
-	err := c.cc.Invoke(ctx, SystemAPI_GetTelemetryRuntimeConfig_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // SystemAPIServer is the server API for SystemAPI service.
 // All implementations must embed UnimplementedSystemAPIServer
 // for forward compatibility.
@@ -1296,7 +1322,6 @@ type SystemAPIServer interface {
 	GetConfig(context.Context, *Empty) (*SystemConfigData, error)
 	UpdateConfig(context.Context, *SystemConfigData) (*Empty, error)
 	GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error)
-	GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error)
 	mustEmbedUnimplementedSystemAPIServer()
 }
 
@@ -1315,9 +1340,6 @@ func (UnimplementedSystemAPIServer) UpdateConfig(context.Context, *SystemConfigD
 }
 func (UnimplementedSystemAPIServer) GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBuilderRuntimeConfig not implemented")
-}
-func (UnimplementedSystemAPIServer) GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetTelemetryRuntimeConfig not implemented")
 }
 func (UnimplementedSystemAPIServer) mustEmbedUnimplementedSystemAPIServer() {}
 func (UnimplementedSystemAPIServer) testEmbeddedByValue()                   {}
@@ -1394,24 +1416,6 @@ func _SystemAPI_GetBuilderRuntimeConfig_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SystemAPI_GetTelemetryRuntimeConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: SystemAPI_GetTelemetryRuntimeConfig_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, req.(*Empty))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // SystemAPI_ServiceDesc is the grpc.ServiceDesc for SystemAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1431,9 +1435,313 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetBuilderRuntimeConfig",
 			Handler:    _SystemAPI_GetBuilderRuntimeConfig_Handler,
 		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/core/core.proto",
+}
+
+const (
+	QuotaAPI_GetUserQuotas_FullMethodName  = "/core.QuotaAPI/GetUserQuotas"
+	QuotaAPI_SetUserQuota_FullMethodName   = "/core.QuotaAPI/SetUserQuota"
+	QuotaAPI_ResetUserQuota_FullMethodName = "/core.QuotaAPI/ResetUserQuota"
+)
+
+// QuotaAPIClient is the client API for QuotaAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+type QuotaAPIClient interface {
+	// GetUserQuotas returns the effective quota of each user, marked custom or
+	// default. At most 100 users per call.
+	GetUserQuotas(ctx context.Context, in *GetUserQuotasRequest, opts ...grpc.CallOption) (*UserQuotasResponse, error)
+	SetUserQuota(ctx context.Context, in *SetUserQuotaRequest, opts ...grpc.CallOption) (*UserQuotaData, error)
+	// ResetUserQuota returns the user to the default quota and returns it.
+	ResetUserQuota(ctx context.Context, in *UserQuotaActionRequest, opts ...grpc.CallOption) (*UserQuotaData, error)
+}
+
+type quotaAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewQuotaAPIClient(cc grpc.ClientConnInterface) QuotaAPIClient {
+	return &quotaAPIClient{cc}
+}
+
+func (c *quotaAPIClient) GetUserQuotas(ctx context.Context, in *GetUserQuotasRequest, opts ...grpc.CallOption) (*UserQuotasResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotasResponse)
+	err := c.cc.Invoke(ctx, QuotaAPI_GetUserQuotas_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *quotaAPIClient) SetUserQuota(ctx context.Context, in *SetUserQuotaRequest, opts ...grpc.CallOption) (*UserQuotaData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotaData)
+	err := c.cc.Invoke(ctx, QuotaAPI_SetUserQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *quotaAPIClient) ResetUserQuota(ctx context.Context, in *UserQuotaActionRequest, opts ...grpc.CallOption) (*UserQuotaData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotaData)
+	err := c.cc.Invoke(ctx, QuotaAPI_ResetUserQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// QuotaAPIServer is the server API for QuotaAPI service.
+// All implementations must embed UnimplementedQuotaAPIServer
+// for forward compatibility.
+//
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+type QuotaAPIServer interface {
+	// GetUserQuotas returns the effective quota of each user, marked custom or
+	// default. At most 100 users per call.
+	GetUserQuotas(context.Context, *GetUserQuotasRequest) (*UserQuotasResponse, error)
+	SetUserQuota(context.Context, *SetUserQuotaRequest) (*UserQuotaData, error)
+	// ResetUserQuota returns the user to the default quota and returns it.
+	ResetUserQuota(context.Context, *UserQuotaActionRequest) (*UserQuotaData, error)
+	mustEmbedUnimplementedQuotaAPIServer()
+}
+
+// UnimplementedQuotaAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedQuotaAPIServer struct{}
+
+func (UnimplementedQuotaAPIServer) GetUserQuotas(context.Context, *GetUserQuotasRequest) (*UserQuotasResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserQuotas not implemented")
+}
+func (UnimplementedQuotaAPIServer) SetUserQuota(context.Context, *SetUserQuotaRequest) (*UserQuotaData, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetUserQuota not implemented")
+}
+func (UnimplementedQuotaAPIServer) ResetUserQuota(context.Context, *UserQuotaActionRequest) (*UserQuotaData, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetUserQuota not implemented")
+}
+func (UnimplementedQuotaAPIServer) mustEmbedUnimplementedQuotaAPIServer() {}
+func (UnimplementedQuotaAPIServer) testEmbeddedByValue()                  {}
+
+// UnsafeQuotaAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to QuotaAPIServer will
+// result in compilation errors.
+type UnsafeQuotaAPIServer interface {
+	mustEmbedUnimplementedQuotaAPIServer()
+}
+
+func RegisterQuotaAPIServer(s grpc.ServiceRegistrar, srv QuotaAPIServer) {
+	// If the following call panics, it indicates UnimplementedQuotaAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&QuotaAPI_ServiceDesc, srv)
+}
+
+func _QuotaAPI_GetUserQuotas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserQuotasRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).GetUserQuotas(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_GetUserQuotas_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).GetUserQuotas(ctx, req.(*GetUserQuotasRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _QuotaAPI_SetUserQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetUserQuotaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).SetUserQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_SetUserQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).SetUserQuota(ctx, req.(*SetUserQuotaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _QuotaAPI_ResetUserQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserQuotaActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).ResetUserQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_ResetUserQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).ResetUserQuota(ctx, req.(*UserQuotaActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// QuotaAPI_ServiceDesc is the grpc.ServiceDesc for QuotaAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var QuotaAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.QuotaAPI",
+	HandlerType: (*QuotaAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "GetTelemetryRuntimeConfig",
-			Handler:    _SystemAPI_GetTelemetryRuntimeConfig_Handler,
+			MethodName: "GetUserQuotas",
+			Handler:    _QuotaAPI_GetUserQuotas_Handler,
+		},
+		{
+			MethodName: "SetUserQuota",
+			Handler:    _QuotaAPI_SetUserQuota_Handler,
+		},
+		{
+			MethodName: "ResetUserQuota",
+			Handler:    _QuotaAPI_ResetUserQuota_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/core/core.proto",
+}
+
+const (
+	WorkloadAPI_SuspendUserWorkloads_FullMethodName = "/core.WorkloadAPI/SuspendUserWorkloads"
+)
+
+// WorkloadAPIClient is the client API for WorkloadAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+type WorkloadAPIClient interface {
+	// SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+	// data: it queues a stop for each container that is running or meant to
+	// run, and cancels their pending and running builds and active Compose
+	// deployments. A container with an operation in progress is skipped.
+	// Calling it again does what remains and nothing twice.
+	SuspendUserWorkloads(ctx context.Context, in *SuspendUserWorkloadsRequest, opts ...grpc.CallOption) (*SuspendUserWorkloadsResponse, error)
+}
+
+type workloadAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewWorkloadAPIClient(cc grpc.ClientConnInterface) WorkloadAPIClient {
+	return &workloadAPIClient{cc}
+}
+
+func (c *workloadAPIClient) SuspendUserWorkloads(ctx context.Context, in *SuspendUserWorkloadsRequest, opts ...grpc.CallOption) (*SuspendUserWorkloadsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SuspendUserWorkloadsResponse)
+	err := c.cc.Invoke(ctx, WorkloadAPI_SuspendUserWorkloads_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WorkloadAPIServer is the server API for WorkloadAPI service.
+// All implementations must embed UnimplementedWorkloadAPIServer
+// for forward compatibility.
+//
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+type WorkloadAPIServer interface {
+	// SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+	// data: it queues a stop for each container that is running or meant to
+	// run, and cancels their pending and running builds and active Compose
+	// deployments. A container with an operation in progress is skipped.
+	// Calling it again does what remains and nothing twice.
+	SuspendUserWorkloads(context.Context, *SuspendUserWorkloadsRequest) (*SuspendUserWorkloadsResponse, error)
+	mustEmbedUnimplementedWorkloadAPIServer()
+}
+
+// UnimplementedWorkloadAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWorkloadAPIServer struct{}
+
+func (UnimplementedWorkloadAPIServer) SuspendUserWorkloads(context.Context, *SuspendUserWorkloadsRequest) (*SuspendUserWorkloadsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SuspendUserWorkloads not implemented")
+}
+func (UnimplementedWorkloadAPIServer) mustEmbedUnimplementedWorkloadAPIServer() {}
+func (UnimplementedWorkloadAPIServer) testEmbeddedByValue()                     {}
+
+// UnsafeWorkloadAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to WorkloadAPIServer will
+// result in compilation errors.
+type UnsafeWorkloadAPIServer interface {
+	mustEmbedUnimplementedWorkloadAPIServer()
+}
+
+func RegisterWorkloadAPIServer(s grpc.ServiceRegistrar, srv WorkloadAPIServer) {
+	// If the following call panics, it indicates UnimplementedWorkloadAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&WorkloadAPI_ServiceDesc, srv)
+}
+
+func _WorkloadAPI_SuspendUserWorkloads_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SuspendUserWorkloadsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkloadAPIServer).SuspendUserWorkloads(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkloadAPI_SuspendUserWorkloads_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkloadAPIServer).SuspendUserWorkloads(ctx, req.(*SuspendUserWorkloadsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// WorkloadAPI_ServiceDesc is the grpc.ServiceDesc for WorkloadAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var WorkloadAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.WorkloadAPI",
+	HandlerType: (*WorkloadAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SuspendUserWorkloads",
+			Handler:    _WorkloadAPI_SuspendUserWorkloads_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

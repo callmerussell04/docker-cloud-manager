@@ -74,25 +74,40 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /auth/providers:
     get:
       summary: Get enabled authentication methods
+      description: Rate limited in the session bucket with refresh and logout.
       tags: [Auth]
       security: []
       responses:
         '200':
-          description: Local authentication flags and configured OIDC providers
+          description: Local authentication flags and enabled OIDC providers. With OIDC off the provider list is empty.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthProvidersResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/oidc/keycloak/start:
     get:
       summary: Start Keycloak authorization code flow
+      description: >-
+        A browser navigation. Answers 404 when OIDC is off; otherwise it only redirects. SSO stores a
+        login attempt for 30 minutes and Gateway binds it to the browser with an HttpOnly cookie named
+        `oidc_state_` plus the first 16 hex characters of the SHA-256 of the attempt's state (SameSite=Lax,
+        path `/api/v1/auth/oidc/keycloak/callback`, Secure and domain as the refresh cookie, lifetime from the
+        attempt's expiry), so attempts in several tabs keep separate cookies. Every failure redirects to the
+        SPA callback page with `login=error&reason=<code>`: an invalid `redirect_after` to the default callback
+        path with `login_failed`, a provider not yet reached or SSO unavailable to `redirect_after` with
+        `provider_unavailable`, and a request over the sign-in navigation rate limit (shared with the callback)
+        to the default callback path with `rate_limited`.
       tags: [Auth]
       security: []
       parameters:
@@ -104,15 +119,35 @@ paths:
             type: string
       responses:
         '302':
-          description: Redirect to the Keycloak authorization endpoint and set the HttpOnly oidc_state cookie
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          description: >-
+            Redirect to the Keycloak authorization endpoint with the attempt's binding cookie set, or to the
+            SPA callback page with `login=error&reason=<code>`.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            Location:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /auth/oidc/keycloak/callback:
     get:
       summary: Complete Keycloak authorization code flow
+      description: >-
+        A browser navigation. Answers 404 when OIDC is off; otherwise it only redirects to the SPA callback
+        page: `login=success` with the DCM refresh cookie set, or `login=error&reason=<code>`. Gateway reads
+        the binding cookie named from the `state` parameter and clears it on every outcome; a state that is
+        not 43 base64url characters is refused without sending the callback to SSO. A failure after SSO
+        consumed the attempt redirects to the attempt's target, any other to the default callback path.
+        Reasons (a closed set; clients show a generic message for a code they do not know):
+        `access_denied` (the provider answered `error=access_denied`), `provider_error` (any other provider
+        error), `state_invalid` (missing cookie, code or state, or an unknown, expired, mismatched or reused
+        attempt), `identity_rejected`, `account_deactivated`, `account_conflict`, `provider_unavailable`
+        (the provider not yet reached, or the provider or SSO unavailable or timing out), `rate_limited`
+        (over the sign-in navigation limit shared with start) and `login_failed` (anything else).
       tags: [Auth]
       security:
         - OIDCStateCookie: []
@@ -134,11 +169,63 @@ paths:
             type: string
       responses:
         '302':
-          description: Set the DCM refresh cookie and redirect to the SPA callback
+          description: Redirect to the SPA callback page with the sign-in result.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              description: Clears the attempt's binding cookie; on success also sets the refresh cookie.
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /auth/oidc/keycloak/backchannel-logout:
+    post:
+      summary: Receive a Keycloak back-channel logout
+      description: >-
+        OpenID Connect Back-Channel Logout, posted by Keycloak's server when a user signs out there or
+        their Keycloak session is ended. Needs no cookie and no browser origin, reads a body of at most
+        64 KiB, and has its own rate-limit bucket under `GATEWAY_AUTH_RATE_LIMIT_*`. SSO verifies the
+        token's signature, issuer, audience and expiry, the back-channel logout event, a `sub` or `sid`,
+        and the absence of a nonce. With `sid` it revokes the DCM sessions signed in with that Keycloak
+        session; with only `sub` every session of that user signed in through Keycloak. A valid token
+        that matches nothing, including the call Keycloak makes after a sign-out DCM started, still
+        answers 200. A verified logout is audited as `auth.provider_logout`.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [logout_token]
+              properties:
+                logout_token:
+                  type: string
+                  description: The signed logout token (a JWT).
+      responses:
+        '200':
+          description: The token is valid; the sessions it names are revoked.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/login:
     post:
@@ -155,6 +242,11 @@ paths:
         '200':
           description: Successful login
           headers:
+            Cache-Control:
+              description: Credentials must not be cached
+              schema:
+                type: string
+                enum: [no-store]
             Set-Cookie:
               description: Refresh token cookie (refresh_token)
               schema:
@@ -168,10 +260,24 @@ paths:
                     type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 
   /auth/refresh:
     post:
-      summary: Refresh access token using cookie
+      summary: Rotate the single-use refresh token
+      description: >-
+        Requires an allowed Origin header, or an allowed Referer origin when Origin is absent.
+        Reusing a consumed token revokes its session, including access JWTs. Do not automatically
+        retry an uncertain response. Invalid refresh returns 401 and expires the cookie;
+        503/504 preserve it. Session absolute lifetime is 30 days and refresh idle lifetime is 7 days.
+      parameters:
+        - $ref: '#/components/parameters/CookieOrigin'
+        - $ref: '#/components/parameters/CookieReferer'
       tags: [Auth]
       security:
         - CookieAuth: []
@@ -179,6 +285,11 @@ paths:
         '200':
           description: Token refreshed successfully
           headers:
+            Cache-Control:
+              description: Credentials must not be cached
+              schema:
+                type: string
+                enum: [no-store]
             Set-Cookie:
               description: New refresh token cookie
               schema:
@@ -192,24 +303,72 @@ paths:
                     type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /auth/logout:
     post:
-      summary: Logout user (clears refresh token cookie)
+      summary: Revoke the current DCM session and clear its refresh cookie
+      description: >-
+        Accepts current or consumed refresh secrets, without an access JWT. Absent, unknown
+        or already revoked secrets succeed idempotently. Other sessions remain active.
+        Requires an allowed Origin or, if absent, an allowed Referer origin. Storage failure
+        returns 503/504 and preserves the cookie; success confirms revocation. For a live session
+        created through OIDC the answer carries `provider_logout_url`, the provider's sign-out URL
+        (its end-session endpoint with `id_token_hint`, `client_id` and `post_logout_redirect_uri`
+        set to the request origin plus `/login`); the client navigates to it after this call
+        succeeds so the Keycloak session ends too. The URL holds Keycloak's own ID token, never a DCM
+        token. Local sessions, already revoked ones, or a provider SSO has not reached or that
+        advertises no end-session endpoint answer an empty object.
+      parameters:
+        - $ref: '#/components/parameters/CookieOrigin'
+        - $ref: '#/components/parameters/CookieReferer'
       tags: [Auth]
       security: []
       responses:
         '200':
           description: Successfully logged out
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   # ================= CONTAINERS =================
   /containers:
     get:
       summary: Get all containers for current user
+      description: >
+        Filtered by status, sorted and searched on the server. `total_count` counts the containers
+        matching every filter, status included; `status_counts` follows the project and the search
+        but not the status filter.
       tags: [Containers]
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/ContainerProjectParam'
+        - $ref: '#/components/parameters/ContainerStatusParam'
+        - $ref: '#/components/parameters/ContainerSortParam'
+        - $ref: '#/components/parameters/ContainerOrderParam'
+        - $ref: '#/components/parameters/ContainerSearchParam'
       responses:
         '200':
           description: Paginated list of containers
@@ -225,6 +384,10 @@ paths:
                   total_count:
                     type: integer
                     format: int64
+                  status_counts:
+                    $ref: '#/components/schemas/ContainerStatusCounts'
+        '400':
+          description: Unknown status, sort or order, or a search over 100 characters
     post:
       summary: Create a new container
       tags: [Containers]
@@ -249,6 +412,22 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /containers/{id}:
+    get:
+      summary: Get one of the current user's containers
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The container
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserContainer'
+        '404':
+          description: No such container, or it belongs to another user
 
   /containers/{id}/action/{action}:
     post:
@@ -439,6 +618,8 @@ paths:
                   volume_id:
                     type: string
                     format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -615,6 +796,20 @@ paths:
                     format: int64
 
   /builds/{id}:
+    get:
+      summary: Get one of the current user's builds
+      tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The build
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserBuild'
+        '404':
+          description: No such build, or it belongs to another user
     delete:
       summary: Delete a build record
       tags: [Builds]
@@ -747,6 +942,20 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
 
   /projects/{id}:
+    get:
+      summary: Get one of the current user's compose projects
+      tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProject'
+        '404':
+          description: No such project, or it belongs to another user
     delete:
       summary: Delete a compose project and its resources
       tags: [Projects]
@@ -843,6 +1052,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /admin/monitoring:
     get:
@@ -999,6 +1210,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedAdminUsers'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       summary: Create a user as admin
       tags: [Admin]
@@ -1010,11 +1223,11 @@ paths:
               $ref: '#/components/schemas/CreateAdminUserRequest'
       responses:
         '201':
-          description: User created
+          description: User created, with the default quota until one is set
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -1035,8 +1248,26 @@ paths:
                 $ref: '#/components/schemas/AdminUser'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     put:
       summary: Update a user as admin
+      description: |
+        Saves the account in SSO. An update that leaves `status` as
+        `deactivated` is a deactivation: Core then stops the user's
+        workloads exactly as `DELETE /admin/users/{id}` does, the answer
+        carries `workloads`, and it is audited as a deactivation. When Core
+        cannot be reached the account is still saved as deactivated and the
+        answer is `503`; repeating the request is safe. Any other update
+        answers without `workloads` and stops nothing.
+
+        For an OIDC user (`auth_source` is `oidc`) the identity provider owns
+        the username, email and password: an update that changes the
+        username or email, or sets a password, answers `400` with
+        `username, email and password of this user are managed by the
+        identity provider`. While `role_managed_by_provider` is true, an
+        update that changes the role answers `400` with `role of this user
+        is managed by the identity provider`. Status changes stay allowed.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -1048,33 +1279,49 @@ paths:
               $ref: '#/components/schemas/UpdateAdminUserRequest'
       responses:
         '200':
-          description: User updated
+          description: User updated; with `workloads` when the update left the account deactivated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserUpdate'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
-      summary: Deactivate a user
+      summary: Deactivate a user and stop their workloads
+      description: |
+        Deactivates the user in SSO, then has Core stop their workloads: a
+        stop is queued for every container that is running or meant to run
+        (its `last_error` then reads `stopped by the platform: the account
+        that owns this container was deactivated` until its next start), and
+        their pending and running builds and active Compose deployments are
+        canceled. Containers, volumes, images and projects are kept;
+        reactivation starts nothing. A container with an operation in
+        progress, or a workload that could not be stopped, is counted in
+        `workloads.remaining`. Repeating the request is safe and handles what
+        remains. When Core cannot be reached the account is still
+        deactivated and the answer is `503`.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
         '200':
-          description: User deactivated
+          description: User deactivated and their workloads stopped, or `workloads.remaining` still to stop
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserDeactivation'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /admin/users/{id}/activate:
     post:
@@ -1088,17 +1335,74 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/quota:
+    put:
+      summary: Give a user a custom quota
+      description: >-
+        Requires the admin user-update permission. Gateway confirms through SSO
+        that the user exists. Lowering a quota below what the user already
+        reserves stops nothing; it applies from their next admission. Audited
+        as user.quota_set.
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserQuotaRequest'
+      responses:
+        '200':
+          description: The user's custom quota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserQuota'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      summary: Return a user to the default quota
+      description: >-
+        Requires the admin user-update permission. Removes the user's custom
+        quota; resetting a user already on the default changes nothing.
+        Audited as user.quota_reset.
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The default quota the user now has
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserQuota'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /admin/containers:
     get:
       summary: Get paginated list of all containers (all users)
+      description: Filtered, sorted, searched and counted across every user, as `GET /containers` is for one.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/ContainerProjectParam'
+        - $ref: '#/components/parameters/ContainerStatusParam'
+        - $ref: '#/components/parameters/ContainerSortParam'
+        - $ref: '#/components/parameters/ContainerOrderParam'
+        - $ref: '#/components/parameters/ContainerSearchParam'
       responses:
         '200':
           description: Paginated containers
@@ -1113,6 +1417,26 @@ paths:
                       $ref: '#/components/schemas/Container'
                   total_count:
                     type: integer
+                  status_counts:
+                    $ref: '#/components/schemas/ContainerStatusCounts'
+        '400':
+          description: Unknown status, sort or order, or a search over 100 characters
+
+  /admin/containers/{id}:
+    get:
+      summary: Admin get any container
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The container
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Container'
+        '404':
+          description: No such container
 
   /admin/containers/{id}/action/{action}:
     post:
@@ -1333,6 +1657,20 @@ paths:
                     type: integer
 
   /admin/builds/{id}:
+    get:
+      summary: Admin get any build
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The build with its owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Build'
+        '404':
+          description: No such build
     delete:
       summary: Admin delete any build record
       tags: [Admin]
@@ -1399,6 +1737,20 @@ paths:
                     type: integer
 
   /admin/projects/{id}:
+    get:
+      summary: Admin get any project
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The project with its owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: No such project
     delete:
       summary: Admin delete any project
       tags: [Admin]
@@ -1469,7 +1821,9 @@ components:
     OIDCStateCookie:
       type: apiKey
       in: cookie
-      name: oidc_state
+      # The real name is per attempt: oidc_state_ plus the first 16 hex characters
+      # of the SHA-256 of the attempt's state.
+      name: oidc_state_<hash>
     TelemetryTicketAuth:
       type: apiKey
       in: query
@@ -1477,6 +1831,60 @@ components:
       description: Short-lived, opaque, single-use ticket issued by the matching ticket endpoint.
 
   parameters:
+    ContainerProjectParam:
+      name: project_id
+      in: query
+      description: Only the containers of this Compose project.
+      schema:
+        type: string
+        format: uuid
+    ContainerStatusParam:
+      name: status
+      in: query
+      description: >
+        Status filter. `running` is running; `stopped` is exited and created; `attention` is failing
+        (error, missing) and busy (every other status). Omitted is `all`.
+      schema:
+        type: string
+        enum: [all, running, stopped, attention]
+        default: all
+    ContainerSortParam:
+      name: sort
+      in: query
+      description: >
+        Column to sort by. `status` ascending is failing, busy, running, created, exited. `address`
+        ascending puts unpublished containers last. `memory` is the reservation. `created` ascending
+        is the newest first. Ties are ordered by name, then id, in either direction.
+      schema:
+        type: string
+        enum: [name, status, address, memory, created]
+        default: status
+    ContainerOrderParam:
+      name: order
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+    ContainerSearchParam:
+      name: q
+      in: query
+      description: Case-insensitive substring of the name or image tag, taken literally; trimmed, at most 100 characters.
+      schema:
+        type: string
+        maxLength: 100
+    CookieOrigin:
+      in: header
+      name: Origin
+      description: Exact browser origin in CORS_ALLOWED_ORIGINS; required unless an allowed Referer is supplied.
+      schema:
+        type: string
+    CookieReferer:
+      in: header
+      name: Referer
+      description: Used only when Origin is absent; its origin must be in CORS_ALLOWED_ORIGINS.
+      schema:
+        type: string
     IdParam:
       name: id
       in: path
@@ -1641,6 +2049,19 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    ContainerStatusCounts:
+      type: object
+      description: How many containers each status filter shows.
+      required: [all, running, stopped, attention]
+      properties:
+        all:
+          type: integer
+        running:
+          type: integer
+        stopped:
+          type: integer
+        attention:
+          type: integer
     ErrorResponse:
       type: object
       properties:
@@ -1648,6 +2069,25 @@ components:
           type: string
         error_code:
           type: string
+        limit:
+          type: string
+          description: >-
+            The limit a rejected request exceeded. Present only when the
+            rejection names one; several limits share one error_code. Clients
+            must tolerate values added later.
+          enum:
+            - user_memory
+            - user_cpu
+            - user_disk
+            - host_memory
+            - host_cpu
+            - disk_floor
+            - containers_per_user
+            - volumes_per_user
+            - queued_container_creates
+            - queued_builds
+            - queued_compose_deployments
+            - staged_source_bytes
         request_id:
           type: string
 
@@ -1706,6 +2146,13 @@ components:
           type: string
           minLength: 6
 
+    LogoutResponse:
+      type: object
+      properties:
+        provider_logout_url:
+          type: string
+          format: uri
+          description: Present only for a session created through OIDC; the client navigates to it.
     LoginRequest:
       type: object
       required: [username, password]
@@ -1727,15 +2174,19 @@ components:
           type: array
           items:
             type: object
-            required: [name]
+            required: [name, available]
             properties:
               name:
                 type: string
                 example: keycloak
+              available:
+                type: boolean
+                description: False while SSO has not reached the enabled provider; sign-in through it answers 503 until then.
 
     # ADMIN USERS
     AdminUser:
       type: object
+      description: SSO's user with the effective quota Core holds for them.
       properties:
         user_id:
           type: string
@@ -1751,15 +2202,87 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+        auth_source:
+          type: string
+          enum: [local, oidc]
+          description: Where the account comes from. The identity provider owns an OIDC user's username, email and password, and updates that change them answer 400.
+        role_managed_by_provider:
+          type: boolean
+          description: True for an OIDC user while SSO_OIDC_ADMIN_GROUPS is set. The identity provider then owns the role, and an update that changes it answers 400.
         quota_cpu:
           type: number
           format: double
+          description: CPU quota in cores
         quota_ram_mb:
           type: integer
           format: int64
         quota_disk_mb:
           type: integer
           format: int64
+        quota_custom:
+          type: boolean
+          description: False when the user has the default quota from the runtime settings
+
+    AdminUserAccount:
+      type: object
+      description: A user's account as an account change returns it; quotas are read with the user.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+        auth_source:
+          type: string
+          enum: [local, oidc]
+          description: Where the account comes from. The identity provider owns an OIDC user's username, email and password, and updates that change them answer 400.
+        role_managed_by_provider:
+          type: boolean
+          description: True for an OIDC user while SSO_OIDC_ADMIN_GROUPS is set. The identity provider then owns the role, and an update that changes it answers 400.
+
+    AdminUserDeactivation:
+      description: The deactivated user and what happened to their workloads.
+      allOf:
+        - $ref: '#/components/schemas/AdminUserAccount'
+        - type: object
+          required: [workloads]
+          properties:
+            workloads:
+              $ref: '#/components/schemas/WorkloadSuspension'
+
+    AdminUserUpdate:
+      description: The updated user. `workloads` is present only when the update left the account deactivated.
+      allOf:
+        - $ref: '#/components/schemas/AdminUserAccount'
+        - type: object
+          properties:
+            workloads:
+              $ref: '#/components/schemas/WorkloadSuspension'
+
+    WorkloadSuspension:
+      description: What deactivation did to the user's workloads.
+      type: object
+      required: [stopped_containers, canceled_builds, canceled_deployments, remaining]
+      properties:
+        stopped_containers:
+          type: integer
+          description: Containers a stop was queued for.
+        canceled_builds:
+          type: integer
+        canceled_deployments:
+          type: integer
+        remaining:
+          type: integer
+          description: Workloads not yet stopped or canceled, because another operation was in progress or the attempt failed. Repeat the deactivation to handle them.
 
     PaginatedAdminUsers:
       type: object
@@ -1773,7 +2296,7 @@ components:
 
     CreateAdminUserRequest:
       type: object
-      required: [username, email, password, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
+      required: [username, email, password, role, status]
       properties:
         username:
           type: string
@@ -1789,9 +2312,34 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+
+    UpdateAdminUserRequest:
+      type: object
+      required: [username, email, role, status]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+
+    SetUserQuotaRequest:
+      type: object
+      required: [quota_cpu, quota_ram_mb, quota_disk_mb]
+      properties:
         quota_cpu:
           type: number
           format: double
+          description: CPU in cores, from 0.001 to 1000000
           minimum: 0
           exclusiveMinimum: true
         quota_ram_mb:
@@ -1803,37 +2351,25 @@ components:
           format: int64
           minimum: 1
 
-    UpdateAdminUserRequest:
+    UserQuota:
       type: object
-      required: [username, email, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
       properties:
-        username:
+        user_id:
           type: string
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          minLength: 6
-        role:
-          type: string
-          enum: [admin, user]
-        status:
-          type: string
-          enum: [active, deactivated]
+          format: uuid
         quota_cpu:
           type: number
           format: double
-          minimum: 0
-          exclusiveMinimum: true
+          description: CPU quota in cores
         quota_ram_mb:
           type: integer
           format: int64
-          minimum: 1
         quota_disk_mb:
           type: integer
           format: int64
-          minimum: 1
+        quota_custom:
+          type: boolean
+          description: False when the user has the default quota from the runtime settings
 
     # CONTAINERS
     CreateContainerRequest:
@@ -1857,6 +2393,22 @@ components:
         domain_prefix:
           type: string
           maxLength: 30
+        memory_reservation_mb:
+          type: integer
+          format: int64
+          description: >-
+            Memory the container is promised whenever it runs, in MB (MiB). Absent or 0 takes
+            default_memory_reservation_bytes. Outside 16 MB to 1 TiB is 400; above what the owner's
+            memory quota leaves is 403 with limit user_memory. The memory limit and boost ceiling are
+            derived from it. It cannot be changed after creation.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: >-
+            CPU the container is promised whenever it runs, in millicores. Absent or 0 takes
+            default_cpu_reservation_millicores. Outside 10 millicores to 1,000,000 cores is 400; above
+            what the owner's CPU quota leaves is 403 with limit user_cpu. CPU shares, the CPU limit and
+            the boost ceiling are derived from it. It cannot be changed after creation.
 
     VolumeMountRequest:
       type: object
@@ -1916,6 +2468,14 @@ components:
           type: integer
           format: int64
           description: Unix timestamp
+        memory_reservation_bytes:
+          type: integer
+          format: int64
+          description: Memory the container is promised whenever it runs, chosen at create or the default of that time.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: CPU the container is promised whenever it runs, chosen at create or the default of that time.
 
     Container:
       type: object
@@ -1958,6 +2518,14 @@ components:
           format: uuid
         owner_username:
           type: string
+        memory_reservation_bytes:
+          type: integer
+          format: int64
+          description: Memory the container is promised whenever it runs, chosen at create or the default of that time.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: CPU the container is promised whenever it runs, chosen at create or the default of that time.
 
     ContainerStats:
       type: object
@@ -1971,6 +2539,11 @@ components:
         memory_limit_bytes:
           type: integer
           format: int64
+          description: The memory limit the container runs with now.
+        memory_standard_limit_bytes:
+          type: integer
+          format: int64
+          description: The limit create and start apply. A current limit above it is borrowed and may be reclaimed.
         network_rx_bytes:
           type: integer
           format: int64
@@ -1985,6 +2558,10 @@ components:
       properties:
         name:
           type: string
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. Omitted or 0 uses default_volume_size_bytes; otherwise at least 1048576 (1 MiB). The size cannot change after creation. A size below 1 MiB is rejected with 400; a size that does not fit what the owner's images and volume sizes leave of the disk quota is rejected with 409 (user disk quota exceeded).
 
     Volume:
       type: object
@@ -2006,6 +2583,13 @@ components:
         usage_observed_at:
           type: integer
           format: int64
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. A volume measured above it counts with its measurement, and the running containers that mount it writable are stopped.
+        size_enforced:
+          type: boolean
+          description: True when the kernel refuses writes past size_bytes; false when the size is only checked periodically, so usage can briefly exceed it.
         created_at:
           type: integer
           format: int64
@@ -2014,6 +2598,23 @@ components:
           format: uuid
         owner_username:
           type: string
+        used_by:
+          type: array
+          description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ContainerRef'
+
+    ContainerRef:
+      type: object
+      description: A container another resource lists, one that uses an image or mounts a volume.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The container's ID.
+        name:
+          type: string
+          description: The container's name.
 
     UserVolume:
       type: object
@@ -2033,9 +2634,21 @@ components:
         usage_observed_at:
           type: integer
           format: int64
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. A volume measured above it counts with its measurement, and the running containers that mount it writable are stopped.
+        size_enforced:
+          type: boolean
+          description: True when the kernel refuses writes past size_bytes; false when the size is only checked periodically, so usage can briefly exceed it.
         created_at:
           type: integer
           format: int64
+        used_by:
+          type: array
+          description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ContainerRef'
 
     # IMAGES
     UserImage:
@@ -2046,8 +2659,10 @@ components:
           format: uuid
         tag:
           type: string
-        size_mb:
+        size_bytes:
           type: integer
+          format: int64
+          description: Image size in bytes, as the Registry reports it.
         status:
           type: string
         last_error:
@@ -2055,6 +2670,11 @@ components:
         created_at:
           type: integer
           format: int64
+        used_by:
+          type: array
+          description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ContainerRef'
 
     Image:
       type: object
@@ -2064,8 +2684,10 @@ components:
           format: uuid
         tag:
           type: string
-        size_mb:
+        size_bytes:
           type: integer
+          format: int64
+          description: Image size in bytes, as the Registry reports it.
         status:
           type: string
         last_error:
@@ -2078,6 +2700,11 @@ components:
           format: uuid
         owner_username:
           type: string
+        used_by:
+          type: array
+          description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ContainerRef'
 
     # BUILDS
     BuildImageGitRequest:
@@ -2122,14 +2749,33 @@ components:
         image_id:
           type: string
           format: uuid
+          description: Omitted once the build's image record has been deleted.
+        tag:
+          type: string
+          description: The image tag the build was queued for.
         project_id:
           type: string
           format: uuid
         project_service_name:
           type: string
+        source_kind:
+          type: string
+          enum: [archive, git]
+          description: Where the build's context came from. Omitted for a Compose project's build, which project_id and project_service_name name.
+        source_location:
+          type: string
+          description: The uploaded archive's file name, or the Git repository URL.
+        source_ref:
+          type: string
+          description: The Git ref asked for; omitted for an archive or the repository's default branch.
         status:
           type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix seconds when the build entered the queue.
         started_at:
+          description: Unix seconds when execution was claimed; zero before execution.
           type: integer
           format: int64
         finished_at:
@@ -2145,20 +2791,39 @@ components:
         image_id:
           type: string
           format: uuid
+          description: Omitted once the build's image record has been deleted.
+        tag:
+          type: string
+          description: The image tag the build was queued for.
         project_id:
           type: string
           format: uuid
         project_service_name:
           type: string
+        source_kind:
+          type: string
+          enum: [archive, git]
+          description: Where the build's context came from. Omitted for a Compose project's build, which project_id and project_service_name name.
+        source_location:
+          type: string
+          description: The uploaded archive's file name, or the Git repository URL.
+        source_ref:
+          type: string
+          description: The Git ref asked for; omitted for an archive or the repository's default branch.
         status:
           type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix seconds when the build entered the queue.
         started_at:
+          description: Unix seconds when execution was claimed; zero before execution.
           type: integer
           format: int64
         finished_at:
           type: integer
           format: int64
-        log_file_path:
+        log_object_key:
           type: string
         owner_id:
           type: string
@@ -2250,6 +2915,13 @@ components:
         ram_quota_bytes:
           type: integer
           format: int64
+        cpu_used_millicores:
+          type: integer
+          format: int64
+          description: CPU the user's containers reserve.
+        cpu_quota_millicores:
+          type: integer
+          format: int64
         disk_used_mb:
           type: integer
         disk_quota_mb:
@@ -2276,12 +2948,28 @@ components:
         disk_free_bytes: { type: integer, format: int64 }
         dcm_reserved_memory_bytes: { type: integer, format: int64 }
         dcm_reserved_build_memory_bytes: { type: integer, format: int64 }
+        dcm_borrowed_memory_bytes:
+          type: integer
+          format: int64
+          description: Memory running containers and builds borrow above their standard limits, as the memory pressure worker last measured it. 0 before its first pass and while memory boost is off.
         dcm_disk_used_bytes: { type: integer, format: int64 }
+        dcm_reserved_volume_bytes:
+          type: integer
+          format: int64
+          description: The sum of the sizes of all volumes not being deleted, the disk promised to volumes.
         host_min_free_disk_bytes: { type: integer, format: int64 }
         admission_status: { type: string }
         admission_reasons:
           type: array
           items: { type: string }
+        rootfs_quota_status:
+          type: string
+          enum: [enforced, not_enforced, unknown]
+          description: Whether the container root filesystem cap (container_disk_quota) is enforced on this host, as Core classified Docker's storage driver at startup. not_enforced means Docker accepts the cap without applying it; unknown covers unlisted storage setups and a failed read.
+        volume_size_mode:
+          type: string
+          enum: [measured, enforced, unavailable]
+          description: How new volumes get their size. measured when volume_size_enforcement is off (sizes are checked periodically); enforced when it is on and the host supports volume sizes; unavailable when it is on but the host check failed at startup, so new volumes are created measured until a restart or a settings update that turns it on again passes the check.
         containers_total: { type: integer }
         containers_running: { type: integer }
         containers_stopped: { type: integer }
@@ -2416,12 +3104,15 @@ components:
 
     SystemConfig:
       type: object
+      description: >-
+        The runtime settings. A read returns all of them and an update sends all of them back;
+        values fixed when Core starts are not part of this object.
       properties:
-        base_domain:
-          type: string
         default_memory_reservation_bytes:
           type: integer
           format: int64
+          minimum: 16777216
+          description: Memory reservation of a container created without its own figure. At least 16 MiB.
         reserved_system_memory_bytes:
           type: integer
           format: int64
@@ -2434,6 +3125,8 @@ components:
         default_cpu_reservation_millicores:
           type: integer
           format: int64
+          minimum: 10
+          description: CPU reservation, in millicores, of a container created without its own figure. At least 10.
         reserved_system_cpu_millicores:
           type: integer
           format: int64
@@ -2443,22 +3136,9 @@ components:
         max_cpu_burst_multiplier:
           type: integer
           format: int64
-        container_cpu_period:
-          type: integer
-          format: int64
-        default_cpu_shares:
-          type: integer
-          format: int64
-        high_load_cpu_shares:
-          type: integer
-          format: int64
-        high_load_container_count:
-          type: integer
         container_stop_timeout:
           type: integer
         max_log_size:
-          type: string
-        max_log_files:
           type: string
         container_disk_quota:
           type: string
@@ -2480,36 +3160,20 @@ components:
         container_pids_limit:
           type: integer
           format: int64
-        container_memory_swap_multiplier:
-          type: number
-          format: double
         image_builds_enabled:
           type: boolean
         build_memory_bytes:
           type: integer
           format: int64
-        build_cpu_quota:
+        build_cpu_millicores:
           type: integer
           format: int64
-        build_cpu_period:
-          type: integer
-          format: int64
-        build_memory_swap_multiplier:
-          type: number
-          format: double
-        build_pids_limit:
-          type: integer
-          format: int64
-        kaniko_image:
-          type: string
+          description: CPU of one build slot, in millicores; 1000 is one core.
         max_build_time_minutes:
           type: integer
           format: int64
         max_concurrent_builds:
           type: integer
-        max_upload_size_bytes:
-          type: integer
-          format: int64
         max_archive_size_bytes:
           type: integer
           format: int64
@@ -2519,43 +3183,6 @@ components:
         max_build_log_size_bytes:
           type: integer
           format: int64
-        ttl_worker_interval_seconds:
-          type: integer
-          format: int64
-        gc_worker_interval_minutes:
-          type: integer
-          format: int64
-        stale_build_timeout_minutes:
-          type: integer
-          format: int64
-        event_sync_interval_seconds:
-          type: integer
-          format: int64
-        event_reconnect_delay_seconds:
-          type: integer
-          format: int64
-        build_outbox_interval_seconds:
-          type: integer
-          format: int64
-        build_outbox_batch_size:
-          type: integer
-        reports_usage_snapshot_interval_seconds:
-          type: integer
-          format: int64
-        container_create_worker_count:
-          type: integer
-        container_create_max_attempts:
-          type: integer
-        container_create_timeout_minutes:
-          type: integer
-          format: int64
-        max_queued_container_creates_per_user:
-          type: integer
-        container_create_outbox_interval_seconds:
-          type: integer
-          format: int64
-        container_create_outbox_batch_size:
-          type: integer
         max_staged_source_bytes_per_user:
           type: integer
           format: int64
@@ -2567,35 +3194,62 @@ components:
         compose_pipeline_timeout_minutes:
           type: integer
           format: int64
-        compose_deploy_worker_count:
-          type: integer
-        compose_outbox_interval_seconds:
-          type: integer
-          format: int64
-        compose_outbox_batch_size:
-          type: integer
-        compose_deploy_max_attempts:
-          type: integer
         max_queued_compose_deploys_per_user:
           type: integer
-        build_cancel_poll_interval_seconds:
+        build_max_disk_bytes:
           type: integer
           format: int64
-        compose_build_poll_interval_seconds:
-          type: integer
-          format: int64
+          minimum: 67108864
+          description: Disk one build may write. Each build slot holds it against the host disk floor, and Builder stops a build that writes more.
         compose_dependency_wait_timeout_minutes:
-          type: integer
-          format: int64
-        compose_dependency_poll_interval_seconds:
-          type: integer
-          format: int64
-        compose_coordinator_interval_seconds:
           type: integer
           format: int64
         host_min_free_disk_bytes:
           type: integer
           format: int64
+        memory_pressure_min_free_bytes:
+          type: integer
+          format: int64
+        memory_boost_multiplier:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 64
+          description: Boost ceiling as a multiple of the memory reservation. At or below max_burst_multiplier memory boost is off.
+        cpu_boost_multiplier:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 64
+          description: CPU boost ceiling as a multiple of the CPU reservation, granted while the host CPU is idle. At or below max_cpu_burst_multiplier CPU boost is off.
+        boost_min_free_memory_bytes:
+          type: integer
+          format: int64
+          description: Free user memory that must remain after a boost is granted; below it boosted limits are lowered. At least memory_pressure_min_free_bytes.
+        default_volume_size_bytes:
+          type: integer
+          format: int64
+          minimum: 1048576
+          description: Size of a volume created without one, including every volume a Compose deployment creates. At least 1 MiB.
+        volume_size_enforcement:
+          type: boolean
+          description: Give each new volume's size to Docker so the kernel refuses writes past it. Turning it on runs a host check (a throwaway sized volume) and is rejected with 400 when the host does not support volume sizes. Volumes created earlier keep size_enforced false and stay checked periodically.
+        default_user_quota_cpu:
+          type: number
+          format: double
+          minimum: 0.001
+          maximum: 1000000
+          description: CPU quota, in cores, of every user without a custom quota. Core stores quotas and reads the defaults at each admission, so a change applies to every such user at their next request. At least 0.001 (one millicore).
+        default_user_quota_ram_mb:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Memory quota, in MB, of every user without a custom quota. Must be positive.
+        default_user_quota_disk_mb:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Disk quota, in MB, of every user without a custom quota. Must be positive.
         git_sources_enabled:
           type: boolean
         git_allowed_hosts:
@@ -2608,12 +3262,6 @@ components:
         git_max_repository_bytes:
           type: integer
           format: int64
-        telemetry_max_log_tail_lines:
-          type: integer
-        telemetry_max_log_streams_per_user:
-          type: integer
-        telemetry_max_terminal_sessions_per_user:
-          type: integer
         telemetry_terminal_idle_timeout_seconds:
           type: integer
           format: int64
@@ -2624,10 +3272,3 @@ components:
           type: array
           items:
             type: string
-        telemetry_max_command_args:
-          type: integer
-        telemetry_max_command_arg_bytes:
-          type: integer
-        telemetry_ws_read_limit_bytes:
-          type: integer
-          format: int64

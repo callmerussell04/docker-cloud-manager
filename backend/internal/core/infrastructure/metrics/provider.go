@@ -8,7 +8,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 )
 
 type SystemMetrics struct{}
@@ -23,14 +23,6 @@ func (m *SystemMetrics) GetTotalMemory() (int64, error) {
 		return 0, err
 	}
 	return int64(v.Total), nil
-}
-
-func (m *SystemMetrics) GetFreeMemory() (int64, error) {
-	v, err := mem.VirtualMemory()
-	if err != nil {
-		return 0, err
-	}
-	return int64(v.Available), nil
 }
 
 func (m *SystemMetrics) GetLogicalCPUs() (int64, error) {

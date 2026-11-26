@@ -3,13 +3,13 @@ package grpc
 import (
 	"context"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
-	ssoservice "github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
+	ssoservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,7 +27,7 @@ func (h *Handler) GetUser(ctx context.Context, req *sso.GetUserRequest) (*sso.Us
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersRequest) (*sso.BatchGetUsersResponse, error) {
@@ -55,7 +55,7 @@ func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersReque
 		Users: make([]*sso.UserData, 0, len(users)),
 	}
 	for _, user := range users {
-		resp.Users = append(resp.Users, userToProto(user))
+		resp.Users = append(resp.Users, h.userToProto(user))
 	}
 	return resp, nil
 }
@@ -79,7 +79,7 @@ func (h *Handler) ListUsers(ctx context.Context, req *sso.ListUsersRequest) (*ss
 		TotalCount: int32(total),
 	}
 	for _, user := range users {
-		resp.Users = append(resp.Users, userToProto(user))
+		resp.Users = append(resp.Users, h.userToProto(user))
 	}
 	return resp, nil
 }
@@ -89,14 +89,11 @@ func (h *Handler) CreateUser(ctx context.Context, req *sso.CreateUserRequest) (*
 		return nil, grpcerrors.ToGRPC(err)
 	}
 	createDTO := dto.CreateUserRequest{
-		Username:    req.GetUsername(),
-		Email:       req.GetEmail(),
-		Password:    req.GetPassword(),
-		Role:        req.GetRole(),
-		Status:      req.GetStatus(),
-		QuotaCPU:    req.GetQuotaCpu(),
-		QuotaRAMMB:  req.GetQuotaRamMb(),
-		QuotaDiskMB: req.GetQuotaDiskMb(),
+		Username: req.GetUsername(),
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+		Role:     req.GetRole(),
+		Status:   req.GetStatus(),
 	}
 	if createDTO.Username == "" || createDTO.Email == "" || createDTO.Password == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
@@ -106,7 +103,7 @@ func (h *Handler) CreateUser(ctx context.Context, req *sso.CreateUserRequest) (*
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) UpdateUser(ctx context.Context, req *sso.UpdateUserRequest) (*sso.UserData, error) {
@@ -118,34 +115,28 @@ func (h *Handler) UpdateUser(ctx context.Context, req *sso.UpdateUserRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "invalid user_id format")
 	}
 	updateDTO := dto.UpdateUserRequest{
-		UserID:      userID,
-		Username:    req.GetUsername(),
-		Email:       req.GetEmail(),
-		Password:    req.GetPassword(),
-		Role:        req.GetRole(),
-		Status:      req.GetStatus(),
-		QuotaCPU:    req.GetQuotaCpu(),
-		QuotaRAMMB:  req.GetQuotaRamMb(),
-		QuotaDiskMB: req.GetQuotaDiskMb(),
+		UserID:   userID,
+		Username: req.GetUsername(),
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+		Role:     req.GetRole(),
+		Status:   req.GetStatus(),
 	}
 	if updateDTO.Username == "" || updateDTO.Email == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
 	user, err := h.auth.UpdateUser(ctx, updateDTO.UserID, ssoservice.UpdateUserInput{
-		Username:    updateDTO.Username,
-		Email:       updateDTO.Email,
-		Password:    updateDTO.Password,
-		Role:        updateDTO.Role,
-		Status:      updateDTO.Status,
-		QuotaCPU:    updateDTO.QuotaCPU,
-		QuotaRAMMB:  updateDTO.QuotaRAMMB,
-		QuotaDiskMB: updateDTO.QuotaDiskMB,
+		Username: updateDTO.Username,
+		Email:    updateDTO.Email,
+		Password: updateDTO.Password,
+		Role:     updateDTO.Role,
+		Status:   updateDTO.Status,
 	})
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) DeactivateUser(ctx context.Context, req *sso.UserIDRequest) (*sso.UserData, error) {
@@ -174,7 +165,7 @@ func (h *Handler) setUserActive(ctx context.Context, req *sso.UserIDRequest, act
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func pagination(pageRaw, limitRaw int32) (int, int) {
