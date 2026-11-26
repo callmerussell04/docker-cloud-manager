@@ -174,17 +174,20 @@ export function Menu({ label, iconOnly = false, trigger, triggerClassName, side 
                   material="dense"
                   role="menu"
                   aria-label={sheetTitle ?? label}
-                  className="sheet-pop fixed inset-x-2 bottom-2 z-[80] max-h-[80vh] overflow-y-auto rounded-[28px] p-2"
+                  className="sheet-pop fixed inset-x-2 bottom-2 z-[80] flex max-h-[80vh] flex-col rounded-[28px] p-2"
                   onKeyDown={onKeyDown}
                 >
-                  <div aria-hidden className="truncate px-3.5 pb-2.5 pt-2 text-center text-[13px] font-semibold text-label-2">{sheetTitle ?? label}</div>
-                  {children}
+                  <div aria-hidden className="shrink-0 truncate px-3.5 pb-2.5 pt-2 text-center text-[13px] font-semibold text-label-2">{sheetTitle ?? label}</div>
+                  {/* Only the choices scroll: the glass, its rim, the title
+                      and Cancel stay put (a scrolling glass carried its rim
+                      up with the rows). */}
+                  <div className="min-h-0 overflow-y-auto">{children}</div>
                   <button
                     type="button"
                     role="menuitem"
                     tabIndex={-1}
                     onClick={() => close()}
-                    className="mt-1.5 flex h-[46px] w-full items-center justify-center rounded-[14px] bg-fill text-[15px] font-semibold text-label outline-none hover:bg-fill-hover focus-visible:bg-fill-hover"
+                    className="mt-1.5 flex h-[46px] w-full shrink-0 items-center justify-center rounded-[14px] bg-fill text-[15px] font-semibold text-label outline-none hover:bg-fill-hover focus-visible:bg-fill-hover"
                   >
                     {t('common.cancel')}
                   </button>
